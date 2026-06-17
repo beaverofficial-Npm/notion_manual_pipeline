@@ -3,13 +3,14 @@
 import {
   Button,
   Card,
+  Modal,
   message,
   primitiveRadius,
   primitiveSpacing,
   semanticColors,
   semanticTypography,
 } from '@sungbinhwang-beaverworksinc/design-system';
-import { Check, Edit2, FileUp, GalleryHorizontalEnd, Play, Send, Trash2, X } from 'lucide-react';
+import { Check, Edit2, FileUp, GalleryHorizontalEnd, Loader, Play, Send, Trash2, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type {

@@ -98,14 +98,20 @@ async function downloadSource(sourceFile, tmpDir) {
 }
 
 async function renderSlides(pptPath, tmpDir) {
-  await execFileAsync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath], {
-    maxBuffer: 1024 * 1024 * 16,
-  });
+  // 고유 프로필 디렉터리(-env:UserInstallation)로 headless soffice 락/행을 방지하고, 타임아웃을 둔다.
+  const profile = `file://${path.join(tmpDir, 'loprofile')}`;
+  await execFileAsync(
+    soffice,
+    [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath],
+    { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
+  );
   const pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
   if (!pdfName) throw new Error('PDF conversion failed.');
   const renderDpi = process.env.RENDER_DPI ?? '300';
   await execFileAsync(pdftoppm, ['-png', '-r', renderDpi, path.join(tmpDir, pdfName), path.join(tmpDir, 'slide')], {
     maxBuffer: 1024 * 1024 * 16,
+    timeout: Number(process.env.PDFTOPPM_TIMEOUT_MS ?? 180000),
+    killSignal: 'SIGKILL',
   });
   return (await readdir(tmpDir))
     .filter((file) => /^slide-\d+\.png$/.test(file))
@@ -376,6 +382,20 @@ export async function runOnce(jobIdArg) {
     await supabase.from('manual_tasks').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', job.task_id);
     throw error;
   }
+}
+
+// 컨테이너 재시작 등으로 멈춘 running job 을 다시 queued 로 돌려 재처리한다(단일 worker 전제).
+export async function reclaimStuckJobs() {
+  const { data, error } = await supabase
+    .from('manual_conversion_jobs')
+    .update({ status: 'queued', worker_id: null, started_at: null })
+    .eq('status', 'running')
+    .select('id');
+  if (error) {
+    console.error('[worker] reclaim error:', error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
 }
 
 // 직접 실행(`node run-conversion-job.mjs [jobId]`)이면 한 번 처리한다. 폴링 루프는 runOnce 를 import 해 사용.

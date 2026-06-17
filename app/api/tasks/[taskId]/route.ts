@@ -7,6 +7,31 @@ interface RouteContext {
   }>;
 }
 
+// 변환 진행 모달용 상태 폴링: task 상태 + 최신 job 상태 + 지금까지 정리된 슬라이드 수.
+export async function GET(_request: Request, context: RouteContext) {
+  const { taskId } = await context.params;
+  const supabase = createServiceSupabaseClient();
+
+  const [{ data: task }, { data: job }, { count: slideCount }] = await Promise.all([
+    supabase.from('manual_tasks').select('status').eq('id', taskId).maybeSingle(),
+    supabase
+      .from('manual_conversion_jobs')
+      .select('status,error_message')
+      .eq('task_id', taskId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase.from('manual_slides').select('id', { count: 'exact', head: true }).eq('task_id', taskId),
+  ]);
+
+  return NextResponse.json({
+    taskStatus: task?.status ?? null,
+    jobStatus: job?.status ?? null,
+    jobError: job?.error_message ?? null,
+    slideCount: slideCount ?? 0,
+  });
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   const { taskId } = await context.params;
   const supabase = createServiceSupabaseClient();
