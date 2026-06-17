@@ -1,0 +1,63 @@
+{
+  "sourceFile": "비버_매장관리 APP 통합가이드_ver1.0_260615.pptx",
+  "slideNumber": 14,
+  "title": "상품관리 (수정,품절)",
+  "slideImage": "/generated/pilot/product-slide-14/slide-14.png",
+  "slideSize": {
+    "cx": 18288000,
+    "cy": 10287000
+  },
+  "extractedAt": "2026-06-16T07:25:30.031Z",
+  "textCandidates": [
+    {
+      "id": "text-1",
+      "text": "상품관리 (수정,품절)",
+      "status": "approve_ready"
+    },
+    {
+      "id": "text-2",
+      "text": "대표 화면",
+      "status": "approve_ready"
+    },
+    {
+      "id": "text-3",
+      "text": "1. [상품] 메뉴로 내 판매 상품 화면에 진입합니다*상단 검색 버튼을 통해 원하는 상품을 검색 할 수 있어요2. 상품 선택 후 판매상품 상세설정 내역으로 진입합니다* 상품 이미지는 web https://biz.beaverworksinc.com 상품관리 화면에서 수정할 수 있어요3. 상품명을 수정할 수 있어요4. 상품 상세 설명을 입력할 수 있어요",
+      "status": "review_required"
+    }
+  ],
+  "imageCandidates": [
+    {
+      "id": "image-1",
+      "label": "대표 화면 이미지 후보",
+      "kind": "screenshot",
+      "confidence": 0.92,
+      "percentBox": {
+        "left": 9.61,
+        "top": 17.87,
+        "width": 48.74,
+        "height": 67.96
+      },
+      "reviewReason": "screen_candidate"
+    },
+    {
+      "id": "image-2",
+      "label": "보조 이미지 후보",
+      "kind": "screenshot",
+      "confidence": 0.62,
+      "percentBox": {
+        "left": 5.42,
+        "top": 91.2,
+        "width": 9.99,
+        "height": 4.44
+      },
+      "reviewReason": "screen_candidate"
+    }
+  ],
+  "qualityWarnings": [
+    {
+      "code": "ARROW_DETECTED_REVIEW",
+      "label": "화살표/연결선은 기본 제외 대상",
+      "status": "manual_review"
+    }
+  ]
+}

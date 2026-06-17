@@ -1,0 +1,380 @@
+import { createClient } from '@supabase/supabase-js';
+import { execFile } from 'node:child_process';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import {
+  buildFunctionBlocks,
+  classifyRole,
+  extractContentFunctionName,
+  extractSection,
+  normalizeName,
+  parseSlideShapes,
+  screenshotCandidates,
+} from './ppt-parse.mjs';
+
+const execFileAsync = promisify(execFile);
+const repoRoot = process.cwd();
+const tmpRoot = path.join(repoRoot, '.tmp', 'worker');
+const soffice = process.env.SOFFICE_BIN ?? '/opt/homebrew/bin/soffice';
+const pdftoppm = process.env.PDFTOPPM_BIN ?? '/opt/homebrew/bin/pdftoppm';
+const SOURCE_BUCKET = 'manual-source';
+const RENDER_BUCKET = 'manual-renders';
+const MANIFEST_BUCKET = 'manual-manifests';
+
+async function loadLocalEnv() {
+  try {
+    const envText = await readFile(path.join(repoRoot, '.env'), 'utf8');
+    for (const line of envText.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const equalIndex = trimmed.indexOf('=');
+      if (equalIndex === -1) continue;
+      const key = trimmed.slice(0, equalIndex).trim();
+      const value = trimmed.slice(equalIndex + 1).trim();
+      if (key && !process.env[key]) process.env[key] = value;
+    }
+  } catch {
+    // Vercel/worker 환경은 env 를 직접 주입한다.
+  }
+}
+
+function requireEnv(name) {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} is missing.`);
+  return value;
+}
+
+await loadLocalEnv();
+
+const supabase = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv('SUPABASE_SERVICE_ROLE_KEY'), {
+  auth: { persistSession: false },
+});
+
+function firstNumber(source, pattern) {
+  const match = source.match(pattern);
+  return match ? Number(match[1]) : 0;
+}
+
+async function unzipText(pptPath, entry) {
+  const { stdout } = await execFileAsync('unzip', ['-p', pptPath, entry], { maxBuffer: 1024 * 1024 * 16 });
+  return stdout;
+}
+
+async function unzipSlideList(pptPath) {
+  const { stdout } = await execFileAsync('unzip', ['-l', pptPath, 'ppt/slides/slide*.xml'], { maxBuffer: 1024 * 1024 * 8 });
+  return stdout
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/).at(-1) ?? '')
+    .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/.test(entry))
+    .sort((a, b) => Number(a.match(/slide(\d+)/)[1]) - Number(b.match(/slide(\d+)/)[1]));
+}
+
+async function resolveJob(jobIdArg) {
+  const columns = 'id,task_id,source_file_id,run_number,status';
+  if (jobIdArg) {
+    const { data, error } = await supabase.from('manual_conversion_jobs').select(columns).eq('id', jobIdArg).single();
+    if (error || !data) throw new Error(error?.message ?? `Job not found: ${jobIdArg}`);
+    return data;
+  }
+  const { data, error } = await supabase
+    .from('manual_conversion_jobs')
+    .select(columns)
+    .eq('status', 'queued')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+  if (error || !data) throw new Error(error?.message ?? 'No queued job.');
+  return data;
+}
+
+async function downloadSource(sourceFile, tmpDir) {
+  const { data, error } = await supabase.storage.from(SOURCE_BUCKET).download(sourceFile.storage_path);
+  if (error || !data) throw new Error(error?.message ?? 'Source download failed.');
+  const filePath = path.join(tmpDir, sourceFile.file_name);
+  await writeFile(filePath, Buffer.from(await data.arrayBuffer()));
+  return filePath;
+}
+
+async function renderSlides(pptPath, tmpDir) {
+  await execFileAsync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath], {
+    maxBuffer: 1024 * 1024 * 16,
+  });
+  const pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
+  if (!pdfName) throw new Error('PDF conversion failed.');
+  const renderDpi = process.env.RENDER_DPI ?? '300';
+  await execFileAsync(pdftoppm, ['-png', '-r', renderDpi, path.join(tmpDir, pdfName), path.join(tmpDir, 'slide')], {
+    maxBuffer: 1024 * 1024 * 16,
+  });
+  return (await readdir(tmpDir))
+    .filter((file) => /^slide-\d+\.png$/.test(file))
+    .sort((a, b) => Number(a.match(/slide-(\d+)/)[1]) - Number(b.match(/slide-(\d+)/)[1]))
+    .map((file) => path.join(tmpDir, file));
+}
+
+async function uploadFile(bucket, storagePath, filePath, contentType) {
+  const { error } = await supabase.storage.from(bucket).upload(storagePath, await readFile(filePath), {
+    contentType,
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+}
+
+// 슬라이드 순회로 카테고리/기능 트리를 만들고 본문 슬라이드를 기능에 매단다.
+function buildHierarchy(slides) {
+  const categories = [];
+  let currentCategory = null;
+  const functionByKey = new Map(); // categoryIndex::nameNorm -> function
+
+  for (const slide of slides) {
+    if (slide.role === 'cover' || slide.role === 'toc') continue;
+
+    if (slide.role === 'section') {
+      const { categoryTitle, functionTitles } = slide.section;
+      currentCategory = { sort_order: categories.length, title: categoryTitle, source: 'section', functions: [] };
+      categories.push(currentCategory);
+      const categoryIndex = categories.length - 1;
+      for (const title of functionTitles) {
+        const key = `${categoryIndex}::${normalizeName(title)}`;
+        if (functionByKey.has(key)) continue;
+        const fn = { sort_order: currentCategory.functions.length, title, slides: [] };
+        currentCategory.functions.push(fn);
+        functionByKey.set(key, fn);
+      }
+      continue;
+    }
+
+    // content
+    if (!currentCategory) {
+      currentCategory = { sort_order: categories.length, title: '기본', source: 'manual', functions: [] };
+      categories.push(currentCategory);
+    }
+    const categoryIndex = categories.indexOf(currentCategory);
+    const name = slide.functionName || `슬라이드 ${slide.slide_number}`;
+    const key = `${categoryIndex}::${normalizeName(name)}`;
+    let fn = functionByKey.get(key);
+    if (!fn) {
+      fn = { sort_order: currentCategory.functions.length, title: name, slides: [] };
+      currentCategory.functions.push(fn);
+      functionByKey.set(key, fn);
+    }
+    fn.slides.push(slide);
+  }
+
+  return categories;
+}
+
+async function main() {
+  const job = await resolveJob(process.argv[2]);
+  const tmpDir = path.join(tmpRoot, job.id);
+  await rm(tmpDir, { recursive: true, force: true });
+  await mkdir(tmpDir, { recursive: true });
+
+  await supabase
+    .from('manual_conversion_jobs')
+    .update({ status: 'running', worker_id: 'local-worker', started_at: new Date().toISOString(), error_message: null })
+    .eq('id', job.id);
+
+  try {
+    const { data: sourceFile, error: sourceError } = await supabase
+      .from('manual_source_files')
+      .select('id,task_id,file_name,storage_path')
+      .eq('id', job.source_file_id)
+      .single();
+    if (sourceError || !sourceFile) throw new Error(sourceError?.message ?? 'Source file not found.');
+
+    const pptPath = await downloadSource(sourceFile, tmpDir);
+    const [presentationXml, slideEntries, renderedSlides] = await Promise.all([
+      unzipText(pptPath, 'ppt/presentation.xml'),
+      unzipSlideList(pptPath),
+      renderSlides(pptPath, tmpDir),
+    ]);
+
+    const slideSize = {
+      cx: firstNumber(presentationXml, /<p:sldSz[^>]*cx="(\d+)"/),
+      cy: firstNumber(presentationXml, /<p:sldSz[^>]*cy="(\d+)"/),
+    };
+
+    // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
+    const parsedSlides = [];
+    for (const entry of slideEntries) {
+      const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
+      const slideXml = await unzipText(pptPath, entry);
+      const parsed = parseSlideShapes(slideXml, slideSize);
+      const role = classifyRole(parsed, slideNumber);
+      const section = role === 'section' ? extractSection(parsed) : null;
+      const functionName = role === 'content' ? extractContentFunctionName(parsed) : null;
+      const title =
+        section?.categoryTitle ??
+        functionName ??
+        parsed.shapes.find((s) => !s.isGroupLabel)?.text ??
+        `슬라이드 ${slideNumber}`;
+      parsedSlides.push({
+        slide_number: slideNumber,
+        role,
+        section,
+        functionName,
+        title,
+        blocks: role === 'content' ? buildFunctionBlocks(parsed, functionName) : [],
+        screenshots: role === 'content' ? screenshotCandidates(parsed) : [],
+        localRender: renderedSlides[slideNumber - 1] ?? null,
+      });
+    }
+
+    const categories = buildHierarchy(parsedSlides);
+
+    // 기존 결과 정리(같은 task 재실행)
+    await supabase.from('manual_notion_blocks').delete().eq('task_id', job.task_id);
+    await supabase.from('manual_slides').delete().eq('task_id', job.task_id);
+    await supabase.from('manual_functions').delete().eq('task_id', job.task_id);
+    await supabase.from('manual_categories').delete().eq('task_id', job.task_id);
+
+    // 2차 적재: 카테고리 → 기능 → 슬라이드/블록/asset
+    const slideIdByNumber = new Map();
+
+    async function insertSlide(slide, categoryId, functionId) {
+      const renderPath = `${job.task_id}/runs/${job.run_number}/slides/${String(slide.slide_number).padStart(3, '0')}.png`;
+      if (slide.localRender) await uploadFile(RENDER_BUCKET, renderPath, slide.localRender, 'image/png');
+      const reviewStatus = slide.role === 'cover' || slide.role === 'toc' ? 'excluded' : 'pending';
+      const { data, error } = await supabase
+        .from('manual_slides')
+        .insert({
+          task_id: job.task_id,
+          job_id: job.id,
+          slide_number: slide.slide_number,
+          title: slide.title,
+          render_path: renderPath,
+          slide_role: slide.role,
+          category_id: categoryId,
+          function_id: functionId,
+          review_status: reviewStatus,
+          warnings: [],
+        })
+        .select('id')
+        .single();
+      if (error || !data) throw new Error(error?.message ?? `Slide insert failed: ${slide.slide_number}`);
+      slideIdByNumber.set(slide.slide_number, data.id);
+      return data.id;
+    }
+
+    let blockOrder = 0;
+    for (const category of categories) {
+      const { data: catRow, error: catError } = await supabase
+        .from('manual_categories')
+        .insert({ task_id: job.task_id, sort_order: category.sort_order, title: category.title, source: category.source })
+        .select('id')
+        .single();
+      if (catError || !catRow) throw new Error(catError?.message ?? 'Category insert failed.');
+
+      for (const fn of category.functions) {
+        const { data: fnRow, error: fnError } = await supabase
+          .from('manual_functions')
+          .insert({
+            task_id: job.task_id,
+            category_id: catRow.id,
+            sort_order: fn.sort_order,
+            title: fn.title,
+            review_status: fn.slides.length ? 'pending' : 'review_required',
+          })
+          .select('id')
+          .single();
+        if (fnError || !fnRow) throw new Error(fnError?.message ?? 'Function insert failed.');
+
+        for (const slide of fn.slides) {
+          const slideId = await insertSlide(slide, catRow.id, fnRow.id);
+
+          if (slide.blocks.length) {
+            const { error: blockError } = await supabase.from('manual_notion_blocks').insert(
+              slide.blocks.map((block) => ({
+                task_id: job.task_id,
+                slide_id: slideId,
+                function_id: fnRow.id,
+                sort_order: blockOrder++,
+                kind: block.kind,
+                content: block,
+                notion_payload: {},
+                review_status: 'pending',
+              })),
+            );
+            if (blockError) throw new Error(blockError.message);
+          }
+
+          if (slide.screenshots.length) {
+            const { error: assetError } = await supabase.from('manual_assets').insert(
+              slide.screenshots.slice(0, 4).map((shot) => ({
+                slide_id: slideId,
+                job_id: job.id,
+                kind: 'screenshot',
+                label: shot.label,
+                storage_path: null,
+                crop_box: shot.bbox,
+                source_element_ids: [],
+                included_annotation_ids: [],
+                review_status: 'pending',
+                review_reason: 'extracted_candidate',
+                confidence: shot.confidence,
+              })),
+            );
+            if (assetError) throw new Error(assetError.message);
+          }
+        }
+      }
+    }
+
+    // 표지/목차 등 트리에 안 들어간 슬라이드도 렌더 보존(검수에서 disable 표시)
+    for (const slide of parsedSlides) {
+      if (slideIdByNumber.has(slide.slide_number)) continue;
+      await insertSlide(slide, null, null);
+    }
+
+    const manifest = {
+      jobId: job.id,
+      taskId: job.task_id,
+      runNumber: job.run_number,
+      sourceFileName: sourceFile.file_name,
+      slideSize,
+      categories: categories.map((c) => ({
+        title: c.title,
+        functions: c.functions.map((f) => ({ title: f.title, slides: f.slides.map((s) => s.slide_number) })),
+      })),
+      excludedSlides: parsedSlides.filter((s) => s.role === 'cover' || s.role === 'toc').map((s) => s.slide_number),
+    };
+    const manifestFile = path.join(tmpDir, 'manifest.json');
+    await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`);
+    const manifestPath = `${job.task_id}/runs/${job.run_number}/manifest.json`;
+    await uploadFile(MANIFEST_BUCKET, manifestPath, manifestFile, 'application/json');
+
+    await supabase
+      .from('manual_conversion_jobs')
+      .update({ status: 'succeeded', manifest_path: manifestPath, finished_at: new Date().toISOString() })
+      .eq('id', job.id);
+    await supabase
+      .from('manual_tasks')
+      .update({ status: 'review_required', updated_at: new Date().toISOString() })
+      .eq('id', job.task_id);
+
+    console.log(
+      JSON.stringify(
+        {
+          taskId: job.task_id,
+          categories: categories.length,
+          functions: categories.reduce((sum, c) => sum + c.functions.length, 0),
+          slides: parsedSlides.length,
+          excluded: manifest.excludedSlides.length,
+        },
+        null,
+        2,
+      ),
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown conversion error.';
+    await supabase
+      .from('manual_conversion_jobs')
+      .update({ status: 'failed', error_message: message, finished_at: new Date().toISOString() })
+      .eq('id', job.id);
+    await supabase.from('manual_tasks').update({ status: 'failed', updated_at: new Date().toISOString() }).eq('id', job.task_id);
+    throw error;
+  }
+}
+
+main();

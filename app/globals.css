@@ -1,0 +1,88 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ds-bg-layout);
+  font-family: var(--ds-font-family);
+}
+
+@keyframes nm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes nm-progress-stripe {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 32px 0;
+  }
+}
+
+@keyframes nm-pulse {
+  0%,
+  100% {
+    opacity: 0.44;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.nm-spin {
+  animation: nm-spin 900ms linear infinite;
+}
+
+.nm-progress-active {
+  background-image: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.32) 25%,
+    transparent 25%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.32) 50%,
+    rgba(255, 255, 255, 0.32) 75%,
+    transparent 75%,
+    transparent
+  );
+  background-size: 32px 32px;
+  animation: nm-progress-stripe 700ms linear infinite;
+}
+
+.nm-loading-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: nm-pulse 900ms ease-in-out infinite;
+}
+
+.nm-loading-dot:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.nm-loading-dot:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+/* 아이콘 버튼(수정/삭제 등): 브라우저 기본 검은 포커스 아웃라인/테두리 완전 제거 */
+.nm-icon-btn,
+.nm-icon-btn:hover,
+.nm-icon-btn:focus,
+.nm-icon-btn:focus-visible,
+.nm-icon-btn:active {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nm-icon-btn:hover {
+  background: var(--ds-bg-elevated, #f3f4f6) !important;
+}

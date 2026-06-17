@@ -1,0 +1,106 @@
+import 'server-only';
+import sharp from 'sharp';
+import { createServiceSupabaseClient } from '@/lib/supabase/server';
+
+const RENDER_BUCKET = 'manual-renders';
+const ASSET_BUCKET = 'manual-assets';
+const NOTION_VERSION = '2022-06-28';
+
+export interface PercentBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+function clampBox(box: PercentBox): PercentBox {
+  const left = Math.max(0, Math.min(100, box.left));
+  const top = Math.max(0, Math.min(100, box.top));
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(100 - left, box.width)),
+    height: Math.max(1, Math.min(100 - top, box.height)),
+  };
+}
+
+// 슬라이드 렌더 PNG를 퍼센트 crop_box 기준으로 잘라 PNG 버퍼로 반환한다.
+export async function cropRender(renderBuffer: Buffer, cropBox: PercentBox): Promise<Buffer> {
+  const box = clampBox(cropBox);
+  const image = sharp(renderBuffer);
+  const meta = await image.metadata();
+  const width = meta.width ?? 0;
+  const height = meta.height ?? 0;
+  if (!width || !height) throw new Error('렌더 이미지 크기를 읽지 못했습니다.');
+
+  const left = Math.round((box.left / 100) * width);
+  const top = Math.round((box.top / 100) * height);
+  const cropWidth = Math.max(1, Math.min(width - left, Math.round((box.width / 100) * width)));
+  const cropHeight = Math.max(1, Math.min(height - top, Math.round((box.height / 100) * height)));
+
+  return image.extract({ left, top, width: cropWidth, height: cropHeight }).png().toBuffer();
+}
+
+const renderCache = new Map<string, Buffer>();
+
+export async function loadRender(renderPath: string): Promise<Buffer> {
+  const cached = renderCache.get(renderPath);
+  if (cached) return cached;
+
+  const supabase = createServiceSupabaseClient();
+  const { data, error } = await supabase.storage.from(RENDER_BUCKET).download(renderPath);
+  if (error || !data) throw new Error(error?.message ?? `렌더를 불러오지 못했습니다: ${renderPath}`);
+
+  const buffer = Buffer.from(await data.arrayBuffer());
+  renderCache.set(renderPath, buffer);
+  return buffer;
+}
+
+// 잘린 이미지를 manual-assets 버킷에 저장하고 storage_path 를 반환한다.
+export async function storeCroppedAsset(taskId: string, assetId: string, buffer: Buffer): Promise<string> {
+  const supabase = createServiceSupabaseClient();
+  const storagePath = `${taskId}/assets/${assetId}.png`;
+  const { error } = await supabase.storage.from(ASSET_BUCKET).upload(storagePath, buffer, {
+    contentType: 'image/png',
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+
+  await supabase.from('manual_assets').update({ storage_path: storagePath, updated_at: new Date().toISOString() }).eq('id', assetId);
+  return storagePath;
+}
+
+// 노션 네이티브 파일 업로드(3단계). 만료 없는 첨부 id 를 반환한다.
+export async function uploadImageToNotion(token: string, buffer: Buffer, filename: string): Promise<string> {
+  const createResponse = await fetch('https://api.notion.com/v1/file_uploads', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Notion-Version': NOTION_VERSION,
+    },
+    body: JSON.stringify({ filename, content_type: 'image/png' }),
+  });
+  const created = (await createResponse.json().catch(() => ({}))) as { id?: string; message?: string };
+  if (!createResponse.ok || !created.id) {
+    throw new Error(created.message ?? `파일 업로드 생성 실패 (${createResponse.status})`);
+  }
+
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(buffer)], { type: 'image/png' }), filename);
+
+  const sendResponse = await fetch(`https://api.notion.com/v1/file_uploads/${created.id}/send`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Notion-Version': NOTION_VERSION,
+    },
+    body: form,
+  });
+  const sent = (await sendResponse.json().catch(() => ({}))) as { message?: string };
+  if (!sendResponse.ok) {
+    throw new Error(sent.message ?? `파일 업로드 전송 실패 (${sendResponse.status})`);
+  }
+
+  return created.id;
+}
