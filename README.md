@@ -6,7 +6,7 @@ PPT 통합가이드를 분석해 목차 기준으로 정리하고, 웹에서 검
 
 1차 — 변환
 1. PPT 업로드 (`manual-source` 버킷 저장)
-2. LibreOffice로 PDF 변환 후 슬라이드를 PNG로 렌더(기본 300DPI)
+2. LibreOffice로 PDF 변환 후 슬라이드를 PNG로 렌더(기본 300DPI, `pdftoppm` 페이지 범위 chunk 처리)
 3. 슬라이드 역할 판별(표지·목차·섹션·본문). 표지·목차는 본문에서 제외하되 목차 정보는 카테고리 분류에 사용
 4. 섹션 표지 기준으로 카테고리 → 기능 트리 생성, 연속 동일 기능명은 한 기능으로 병합
 5. 본문 위계 추출(단계 번호 → numbered, 하위 → bullet, 주의/참고 → callout, 표 → table)
@@ -42,7 +42,9 @@ brew install poppler
 npm run worker:conversion   # queued 상태의 변환 job을 처리
 ```
 
-`RENDER_DPI`(기본 300), `SOFFICE_BIN`, `PDFTOPPM_BIN` 환경변수로 렌더 도구 경로·해상도를 조정할 수 있습니다.
+`RENDER_DPI`(기본 300), `SOFFICE_BIN`, `PDFTOPPM_BIN`, `PDFINFO_BIN` 환경변수로 렌더 도구 경로·해상도를 조정할 수 있습니다.
+대형 PPT는 화질을 낮추지 않고 `PDFTOPPM_CHUNK_SIZE`(기본 20) 단위로 나눠 렌더링합니다.
+`PDFTOPPM_CHUNK_TIMEOUT_MS`를 설정하면 chunk별 timeout을 별도로 조정할 수 있습니다.
 
 ## Supabase
 

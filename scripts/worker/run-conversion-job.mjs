@@ -18,6 +18,7 @@ const repoRoot = process.cwd();
 const tmpRoot = path.join(repoRoot, '.tmp', 'worker');
 const soffice = process.env.SOFFICE_BIN ?? '/opt/homebrew/bin/soffice';
 const pdftoppm = process.env.PDFTOPPM_BIN ?? '/opt/homebrew/bin/pdftoppm';
+const pdfinfo = process.env.PDFINFO_BIN ?? 'pdfinfo';
 const SOURCE_BUCKET = 'manual-source';
 const RENDER_BUCKET = 'manual-renders';
 const MANIFEST_BUCKET = 'manual-manifests';
@@ -97,26 +98,94 @@ async function downloadSource(sourceFile, tmpDir) {
   return filePath;
 }
 
+function parsePositiveInt(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function formatExecError(error, context) {
+  const parts = [context];
+  if (error?.message) parts.push(String(error.message).trim());
+  if (error?.signal) parts.push(`signal=${error.signal}`);
+  if (typeof error?.killed === 'boolean') parts.push(`killed=${error.killed}`);
+  if (error?.stderr) parts.push(`stderr=${String(error.stderr).trim().slice(0, 2000)}`);
+  if (error?.stdout) parts.push(`stdout=${String(error.stdout).trim().slice(0, 1000)}`);
+  return parts.filter(Boolean).join('\n');
+}
+
+async function countPdfPages(pdfPath) {
+  const { stdout } = await execFileAsync(pdfinfo, [pdfPath], {
+    maxBuffer: 1024 * 1024,
+    timeout: Number(process.env.PDFINFO_TIMEOUT_MS ?? 30000),
+    killSignal: 'SIGKILL',
+  });
+  const match = stdout.match(/^Pages:\s+(\d+)/m);
+  if (!match) throw new Error(`PDF page count not found: ${pdfPath}`);
+  return Number(match[1]);
+}
+
+async function renderPdfRange({ pdfPath, tmpDir, renderDpi, from, to, chunkIndex }) {
+  const chunkLabel = String(chunkIndex).padStart(4, '0');
+  const outputPrefix = path.join(tmpDir, `slide-chunk-${chunkLabel}`);
+
+  try {
+    await execFileAsync(pdftoppm, ['-png', '-r', renderDpi, '-f', String(from), '-l', String(to), pdfPath, outputPrefix], {
+      maxBuffer: 1024 * 1024 * 16,
+      timeout: Number(process.env.PDFTOPPM_CHUNK_TIMEOUT_MS ?? process.env.PDFTOPPM_TIMEOUT_MS ?? 180000),
+      killSignal: 'SIGKILL',
+    });
+  } catch (error) {
+    throw new Error(formatExecError(error, `pdftoppm failed while rendering pages ${from}-${to}`));
+  }
+
+  return (await readdir(tmpDir))
+    .filter((file) => file.startsWith(`slide-chunk-${chunkLabel}-`) && file.endsWith('.png'))
+    .map((file) => {
+      const page = Number(file.match(/-(\d+)\.png$/)?.[1] ?? 0);
+      return { page, path: path.join(tmpDir, file) };
+    })
+    .filter((item) => item.page >= from && item.page <= to)
+    .sort((a, b) => a.page - b.page);
+}
+
 async function renderSlides(pptPath, tmpDir) {
   // 고유 프로필 디렉터리(-env:UserInstallation)로 headless soffice 락/행을 방지하고, 타임아웃을 둔다.
   const profile = `file://${path.join(tmpDir, 'loprofile')}`;
-  await execFileAsync(
-    soffice,
-    [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath],
-    { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
-  );
+  try {
+    await execFileAsync(
+      soffice,
+      [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath],
+      { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
+    );
+  } catch (error) {
+    throw new Error(formatExecError(error, 'LibreOffice PDF conversion failed'));
+  }
   const pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
   if (!pdfName) throw new Error('PDF conversion failed.');
+  const pdfPath = path.join(tmpDir, pdfName);
   const renderDpi = process.env.RENDER_DPI ?? '300';
-  await execFileAsync(pdftoppm, ['-png', '-r', renderDpi, path.join(tmpDir, pdfName), path.join(tmpDir, 'slide')], {
-    maxBuffer: 1024 * 1024 * 16,
-    timeout: Number(process.env.PDFTOPPM_TIMEOUT_MS ?? 180000),
-    killSignal: 'SIGKILL',
-  });
-  return (await readdir(tmpDir))
-    .filter((file) => /^slide-\d+\.png$/.test(file))
-    .sort((a, b) => Number(a.match(/slide-(\d+)/)[1]) - Number(b.match(/slide-(\d+)/)[1]))
-    .map((file) => path.join(tmpDir, file));
+  const pageCount = await countPdfPages(pdfPath);
+  const chunkSize = parsePositiveInt(process.env.PDFTOPPM_CHUNK_SIZE, 20);
+  const renderedByPage = new Map();
+
+  for (let from = 1, chunkIndex = 1; from <= pageCount; from += chunkSize, chunkIndex += 1) {
+    const to = Math.min(pageCount, from + chunkSize - 1);
+    const chunkFiles = await renderPdfRange({ pdfPath, tmpDir, renderDpi, from, to, chunkIndex });
+
+    for (const item of chunkFiles) {
+      renderedByPage.set(item.page, item.path);
+    }
+
+    const missing = [];
+    for (let page = from; page <= to; page += 1) {
+      if (!renderedByPage.has(page)) missing.push(page);
+    }
+    if (missing.length > 0) {
+      throw new Error(`pdftoppm rendered pages ${from}-${to}, but missing output for pages: ${missing.join(', ')}`);
+    }
+  }
+
+  return Array.from({ length: pageCount }, (_, index) => renderedByPage.get(index + 1)).filter(Boolean);
 }
 
 async function uploadFile(bucket, storagePath, filePath, contentType) {
