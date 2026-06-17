@@ -25,6 +25,5 @@ ENV NODE_ENV=production \
 
 EXPOSE 3000
 
-# 기본 CMD = 웹. worker 서비스는 start command 를 아래로 오버라이드한다:
-#   node scripts/worker/poll-loop.mjs
-CMD ["npm", "run", "start"]
+# 웹 + 변환 worker(폴링)를 한 컨테이너에서 함께 실행한다.
+CMD ["sh", "./scripts/start.sh"]

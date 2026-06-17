@@ -10,9 +10,8 @@ interface RouteContext {
 }
 
 function startInlineConversionWorker(jobId: string) {
-  // 컨테이너(Railway 등)에 LibreOffice/Poppler가 있으면 같은 인스턴스에서 변환을 처리한다.
-  // 바이너리가 없는 환경(예: Vercel)이나 별도 worker 서비스를 쓸 때는 INLINE_WORKER=0 으로 끈다.
-  if (process.env.INLINE_WORKER === '0') return;
+  // 기본은 상주 worker(poll-loop)가 큐를 처리한다. 폴러 없이 즉시 spawn 으로 돌리려면 INLINE_WORKER=1.
+  if (process.env.INLINE_WORKER !== '1') return;
 
   const child = spawn(process.execPath, ['scripts/worker/run-conversion-job.mjs', jobId], {
     cwd: process.cwd(),
