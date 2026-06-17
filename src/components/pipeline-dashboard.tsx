@@ -518,7 +518,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
   // 변환 진행 모달: task 상태를 폴링해 진행을 보여준다(완료/실패 시 폴링 종료).
   useEffect(() => {
-    if (!convWatch) return;
+    if (!convWatch || !convWatch.taskId) return; // 업로드 단계(taskId 없음)엔 폴링하지 않는다
     const watchId = convWatch.taskId;
     let stop = false;
     const tick = async () => {
@@ -570,6 +570,9 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     setProgressClock(0);
     setSubmitStep('PPT 업로드 중');
     setFeedback(null);
+    // 클릭 즉시 진행 모달을 연다(taskId 없는 동안은 '업로드 중' 단계).
+    setConvStatus(null);
+    setConvWatch({ taskId: '', title: selectedFile.name });
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -617,6 +620,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
       const text = error instanceof Error ? error.message : '변환 작업을 시작하지 못했습니다.';
       setFeedback({ type: 'error', message: text });
       message.error(text);
+      setConvWatch(null); // 시작 실패 시 진행 모달 닫기(토스트로 오류 안내)
     } finally {
       setIsSubmitting(false);
       setSubmitStep('');
@@ -1033,20 +1037,23 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
       {/* 변환 진행 모달 */}
       {(() => {
+        const uploading = !!convWatch && !convWatch.taskId;
         const job = convStatus?.jobStatus;
         const taskDone = convStatus?.taskStatus && ['review_required', 'ready_to_publish', 'published'].includes(convStatus.taskStatus);
-        const succeeded = job === 'succeeded' || taskDone;
-        const failed = job === 'failed' || job === 'cancelled' || convStatus?.taskStatus === 'failed';
+        const succeeded = !uploading && (job === 'succeeded' || Boolean(taskDone));
+        const failed = !uploading && (job === 'failed' || job === 'cancelled' || convStatus?.taskStatus === 'failed');
         const inProgress = !succeeded && !failed;
-        const phase = succeeded
-          ? '변환 완료'
-          : failed
-            ? job === 'cancelled'
-              ? '변환이 중단되었습니다'
-              : '변환에 실패했습니다'
-            : job === 'running'
-              ? '슬라이드 분석·렌더 중'
-              : '대기 중 (worker 처리 대기열)';
+        const phase = uploading
+          ? 'PPT 업로드 중'
+          : succeeded
+            ? '변환 완료'
+            : failed
+              ? job === 'cancelled'
+                ? '변환이 중단되었습니다'
+                : '변환에 실패했습니다'
+              : job === 'running'
+                ? '슬라이드 분석·렌더 중'
+                : '분석 대기 중';
         return (
           <Modal
             open={!!convWatch}
@@ -1075,7 +1082,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                 <Button
                   variant="default"
                   onClick={() => {
-                    if (convWatch) handleCancelTask(convWatch.taskId);
+                    if (convWatch?.taskId) handleCancelTask(convWatch.taskId);
                     setConvWatch(null);
                   }}
                 >
@@ -1101,19 +1108,19 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                   className={inProgress ? 'nm-progress-active' : undefined}
                   style={{
                     height: '100%',
-                    width: succeeded ? '100%' : inProgress ? '60%' : '100%',
+                    width: '100%',
                     background: failed ? sc.text.quaternary : sc.primary.default,
-                    borderRadius: pr.sm,
-                    transition: 'width 300ms ease',
                   }}
                 />
               </div>
               <div style={{ fontSize: st.fontSizeSM, color: sc.text.secondary }}>
-                {succeeded
-                  ? `슬라이드 ${convStatus?.slideCount ?? 0}개를 카테고리·기능으로 정리했습니다.`
-                  : failed
-                    ? convStatus?.jobError ?? '잠시 후 다시 시도해 주세요.'
-                    : `정리된 슬라이드 ${convStatus?.slideCount ?? 0}개`}
+                {uploading
+                  ? 'PPT를 업로드하고 있습니다…'
+                  : succeeded
+                    ? `슬라이드 ${convStatus?.slideCount ?? 0}개를 카테고리·기능으로 정리했습니다.`
+                    : failed
+                      ? convStatus?.jobError ?? '잠시 후 다시 시도해 주세요.'
+                      : `정리된 슬라이드 ${convStatus?.slideCount ?? 0}개`}
               </div>
             </div>
           </Modal>
