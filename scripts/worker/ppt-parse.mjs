@@ -27,9 +27,10 @@ export function decodeXml(value) {
 
 export function normalizeName(value) {
   return (value ?? '')
+    .replace(/스템프/g, '스탬프')
     .replace(/\s+/g, '')
-    .replace(/[(),/·:：，]/g, '')
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[^0-9a-z가-힣]/g, '');
 }
 
 function attr(source, name) {

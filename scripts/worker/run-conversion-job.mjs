@@ -202,6 +202,55 @@ function buildHierarchy(slides) {
   let currentCategory = null;
   const functionByKey = new Map(); // categoryIndex::nameNorm -> function
 
+  function distance(a, b) {
+    const prev = Array.from({ length: b.length + 1 }, (_, index) => index);
+    const curr = Array.from({ length: b.length + 1 }, () => 0);
+    for (let i = 1; i <= a.length; i += 1) {
+      curr[0] = i;
+      for (let j = 1; j <= b.length; j += 1) {
+        curr[j] = Math.min(
+          prev[j] + 1,
+          curr[j - 1] + 1,
+          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        );
+      }
+      for (let j = 0; j <= b.length; j += 1) prev[j] = curr[j];
+    }
+    return prev[b.length];
+  }
+
+  function fuzzyMatch(functions, name) {
+    const target = normalizeName(name);
+    if (!target) return null;
+
+    const exact = functions.find((fn) => normalizeName(fn.title) === target);
+    if (exact) return exact;
+
+    if (target.length < 4) return null;
+    let best = null;
+    for (const fn of functions) {
+      const candidate = normalizeName(fn.title);
+      if (candidate.length < 4) continue;
+      const delta = distance(candidate, target);
+      const threshold = Math.max(candidate.length, target.length) >= 8 ? 2 : 1;
+      if (delta <= threshold && (!best || delta < best.delta)) best = { fn, delta };
+    }
+    return best?.fn ?? null;
+  }
+
+  function ensureFunction(categoryIndex, category, title) {
+    const key = `${categoryIndex}::${normalizeName(title)}`;
+    const matched = fuzzyMatch(category.functions, title);
+    if (matched) {
+      functionByKey.set(key, matched);
+      return matched;
+    }
+    const fn = { sort_order: category.functions.length, title, slides: [] };
+    category.functions.push(fn);
+    functionByKey.set(key, fn);
+    return fn;
+  }
+
   for (const slide of slides) {
     if (slide.role === 'cover' || slide.role === 'toc') continue;
 
@@ -211,11 +260,7 @@ function buildHierarchy(slides) {
       categories.push(currentCategory);
       const categoryIndex = categories.length - 1;
       for (const title of functionTitles) {
-        const key = `${categoryIndex}::${normalizeName(title)}`;
-        if (functionByKey.has(key)) continue;
-        const fn = { sort_order: currentCategory.functions.length, title, slides: [] };
-        currentCategory.functions.push(fn);
-        functionByKey.set(key, fn);
+        ensureFunction(categoryIndex, currentCategory, title);
       }
       continue;
     }
@@ -228,16 +273,16 @@ function buildHierarchy(slides) {
     const categoryIndex = categories.indexOf(currentCategory);
     const name = slide.functionName || `슬라이드 ${slide.slide_number}`;
     const key = `${categoryIndex}::${normalizeName(name)}`;
-    let fn = functionByKey.get(key);
-    if (!fn) {
-      fn = { sort_order: currentCategory.functions.length, title: name, slides: [] };
-      currentCategory.functions.push(fn);
-      functionByKey.set(key, fn);
-    }
+    const fn = functionByKey.get(key) ?? ensureFunction(categoryIndex, currentCategory, name);
     fn.slides.push(slide);
   }
 
-  return categories;
+  return categories
+    .map((category) => ({
+      ...category,
+      functions: category.functions.filter((fn) => fn.slides.length > 0),
+    }))
+    .filter((category) => category.functions.length > 0);
 }
 
 export async function runOnce(jobIdArg) {

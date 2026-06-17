@@ -112,16 +112,24 @@ export async function GET(_request: Request, context: RouteContext) {
     functionsByCategory.set(fn.category_id, current);
   }
 
-  const tree = (categories ?? []).map((category) => ({
-    id: category.id,
-    title: category.title,
-    functions: (functionsByCategory.get(category.id) ?? []).map((fn) => ({
-      id: fn.id,
-      title: fn.title,
-      review_status: fn.review_status,
-      slides: (slidesByFunction.get(fn.id) ?? []).map(decorateSlide),
-    })),
-  }));
+  const tree = (categories ?? [])
+    .map((category) => {
+      const categoryFunctions = (functionsByCategory.get(category.id) ?? [])
+        .map((fn) => ({
+          id: fn.id,
+          title: fn.title,
+          review_status: fn.review_status,
+          slides: (slidesByFunction.get(fn.id) ?? []).map(decorateSlide),
+        }))
+        .filter((fn) => fn.slides.length > 0);
+
+      return {
+        id: category.id,
+        title: category.title,
+        functions: categoryFunctions,
+      };
+    })
+    .filter((category) => category.functions.length > 0);
 
   return NextResponse.json({
     task: { id: task.id, title: task.title, status: task.status },
