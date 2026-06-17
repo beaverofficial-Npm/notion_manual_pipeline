@@ -1054,6 +1054,17 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
               : job === 'running'
                 ? '슬라이드 분석·렌더 중'
                 : '분석 대기 중';
+        const slideCount = convStatus?.slideCount ?? 0;
+        // 단계별 채움 + 분석 중엔 슬라이드 수에 따라 90%까지 점근(총 개수 미지라 100%는 완료시에만).
+        const pct = uploading
+          ? 12
+          : succeeded
+            ? 100
+            : failed
+              ? 100
+              : job === 'running'
+                ? Math.min(90, Math.round(35 + (slideCount / (slideCount + 10)) * 55))
+                : 30;
         return (
           <Modal
             open={!!convWatch}
@@ -1101,15 +1112,17 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                 ) : (
                   <X size={20} color={sc.error.default} />
                 )}
-                <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading }}>{phase}</span>
+                <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading, flex: 1 }}>{phase}</span>
+                {!failed && <span style={{ fontSize: st.fontSizeSM, fontWeight: st.fontWeightMedium, color: sc.text.secondary }}>{pct}%</span>}
               </div>
               <div style={{ height: 8, borderRadius: pr.sm, background: sc.bg.elevated, overflow: 'hidden' }}>
                 <div
-                  className={inProgress ? 'nm-progress-active' : undefined}
                   style={{
                     height: '100%',
-                    width: '100%',
+                    width: `${pct}%`,
                     background: failed ? sc.text.quaternary : sc.primary.default,
+                    borderRadius: pr.sm,
+                    transition: 'width 500ms ease',
                   }}
                 />
               </div>
