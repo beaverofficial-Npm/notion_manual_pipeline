@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "worker:conversion": "node scripts/worker/run-conversion-job.mjs"
+    "worker:conversion": "node scripts/worker/run-conversion-job.mjs",
+    "worker:poll": "node scripts/worker/poll-loop.mjs"
   },
   "dependencies": {
     "@sungbinhwang-beaverworksinc/design-system": "^0.2.3",

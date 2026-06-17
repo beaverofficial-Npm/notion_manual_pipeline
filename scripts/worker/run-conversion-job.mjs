@@ -164,8 +164,8 @@ function buildHierarchy(slides) {
   return categories;
 }
 
-async function main() {
-  const job = await resolveJob(process.argv[2]);
+export async function runOnce(jobIdArg) {
+  const job = await resolveJob(jobIdArg);
   const tmpDir = path.join(tmpRoot, job.id);
   await rm(tmpDir, { recursive: true, force: true });
   await mkdir(tmpDir, { recursive: true });
@@ -377,4 +377,10 @@ async function main() {
   }
 }
 
-main();
+// 직접 실행(`node run-conversion-job.mjs [jobId]`)이면 한 번 처리한다. 폴링 루프는 runOnce 를 import 해 사용.
+if (process.argv[1] && process.argv[1].endsWith('run-conversion-job.mjs')) {
+  runOnce(process.argv[2]).catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
