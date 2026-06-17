@@ -38,6 +38,7 @@ export interface ManualProject {
   title: string;
   sourceFile: string;
   notionTarget: string;
+  publishedUrl: string | null;
   status: PipelineStatus;
   totalSlides: number;
   reviewedSlides: number;

@@ -84,11 +84,20 @@ function summarizeReasons(slides: Array<{ warnings: ManualReviewWarning[] }>) {
   });
 }
 
+// 발행된 노션 페이지 id 로 열람 URL 을 만든다(대시 제거한 32자리 hex 형태로 접속 가능).
+function notionPageUrl(pageId: string | null | undefined): string | null {
+  if (!pageId) return null;
+  const compact = pageId.replace(/-/g, '');
+  if (!/^[0-9a-fA-F]{32}$/.test(compact)) return null;
+  return `https://www.notion.so/${compact}`;
+}
+
 function buildProject(
   task: ManualTaskRow,
   sourceFileName: string,
   slides: ManualSlideRow[],
   assetsBySlideId: Map<string, ManualAssetRow[]>,
+  publishedPageId: string | null,
 ): ManualProject {
   const mappedSlides = slides
     .sort((a, b) => a.slide_number - b.slide_number)
@@ -116,6 +125,7 @@ function buildProject(
     title: task.title,
     sourceFile: sourceFileName || '원본 파일 없음',
     notionTarget: task.target_notion_page_id ?? task.target_notion_data_source_id ?? 'Notion 대상 미지정',
+    publishedUrl: notionPageUrl(publishedPageId),
     status: task.status,
     totalSlides: mappedSlides.length,
     reviewedSlides: mappedSlides.filter((slide) => slide.status === 'approved').length,
@@ -181,6 +191,20 @@ export async function listManualProjects(): Promise<ManualProject[]> {
     assetRows = (assets ?? []) as ManualAssetRow[];
   }
 
+  // 발행된 노션 페이지(task 매핑). 가장 최근 발행 페이지를 task 별로 1건 보관한다.
+  const publishedPageByTaskId = new Map<string, string>();
+  const { data: mappings } = await supabase
+    .from('manual_notion_mappings')
+    .select('local_entity_id,notion_page_id,created_at')
+    .eq('local_entity_type', 'task')
+    .in('local_entity_id', taskIds)
+    .order('created_at', { ascending: false });
+  for (const mapping of (mappings ?? []) as Array<{ local_entity_id: string; notion_page_id: string | null }>) {
+    if (mapping.notion_page_id && !publishedPageByTaskId.has(mapping.local_entity_id)) {
+      publishedPageByTaskId.set(mapping.local_entity_id, mapping.notion_page_id);
+    }
+  }
+
   const sourcesByTaskId = new Map<string, string>();
   for (const source of (sources ?? []) as ManualSourceFileRow[]) {
     if (!sourcesByTaskId.has(source.task_id)) {
@@ -203,7 +227,13 @@ export async function listManualProjects(): Promise<ManualProject[]> {
   }
 
   return taskRows.map((task) =>
-    buildProject(task, sourcesByTaskId.get(task.id) ?? '', slidesByTaskId.get(task.id) ?? [], assetsBySlideId),
+    buildProject(
+      task,
+      sourcesByTaskId.get(task.id) ?? '',
+      slidesByTaskId.get(task.id) ?? [],
+      assetsBySlideId,
+      publishedPageByTaskId.get(task.id) ?? null,
+    ),
   );
 }
 

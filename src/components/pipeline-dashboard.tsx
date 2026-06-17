@@ -10,7 +10,7 @@ import {
   semanticColors,
   semanticTypography,
 } from '@sungbinhwang-beaverworksinc/design-system';
-import { Check, Edit2, FileUp, GalleryHorizontalEnd, Loader, Play, Send, Trash2, X } from 'lucide-react';
+import { Check, Edit2, ExternalLink, FileUp, GalleryHorizontalEnd, Loader, Play, Send, Trash2, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -962,6 +962,16 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                     </div>
 
                     <div style={taskActionsStyle}>
+                      {project.publishedUrl ? (
+                        <Button
+                          variant="text"
+                          size="sm"
+                          onClick={() => window.open(project.publishedUrl as string, '_blank', 'noopener,noreferrer')}
+                        >
+                          <ExternalLink size={14} />
+                          노션에서 열기
+                        </Button>
+                      ) : null}
                       {project.status === 'running' || isRunning ? (
                         <>
                           <Button variant="primary" size="sm" disabled>
