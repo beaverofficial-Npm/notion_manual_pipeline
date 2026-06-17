@@ -461,6 +461,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [deletingTaskId, setDeletingTaskId] = useState('');
   const [cancellingTaskId, setCancellingTaskId] = useState('');
   const [editingTitleId, setEditingTitleId] = useState('');
+  const [convWatch, setConvWatch] = useState<{ taskId: string; title: string } | null>(null);
+  const [convStatus, setConvStatus] = useState<{ taskStatus: string | null; jobStatus: string | null; jobError: string | null; slideCount: number } | null>(null);
   const [editTitleValue, setEditTitleValue] = useState('');
   const [progressClock, setProgressClock] = useState(0);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -513,6 +515,36 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
     return () => window.clearInterval(intervalId);
   }, [isSubmitting, projects, publishingTaskId, runningTaskId]);
+
+  // 변환 진행 모달: task 상태를 폴링해 진행을 보여준다(완료/실패 시 폴링 종료).
+  useEffect(() => {
+    if (!convWatch) return;
+    const watchId = convWatch.taskId;
+    let stop = false;
+    const tick = async () => {
+      if (stop) return;
+      try {
+        const res = await fetch(`/api/tasks/${watchId}`);
+        if (res.ok) {
+          const st = (await res.json()) as { taskStatus: string | null; jobStatus: string | null; jobError: string | null; slideCount: number };
+          if (!stop) {
+            setConvStatus(st);
+            if (st.taskStatus) {
+              setProjects((cur) => cur.map((p) => (p.id === watchId ? { ...p, status: st.taskStatus as ManualProject['status'] } : p)));
+            }
+            if (st.jobStatus && ['succeeded', 'failed', 'cancelled'].includes(st.jobStatus)) return;
+          }
+        }
+      } catch {
+        // 무시: 다음 tick 에서 재시도
+      }
+      if (!stop) window.setTimeout(tick, 2500);
+    };
+    tick();
+    return () => {
+      stop = true;
+    };
+  }, [convWatch]);
 
   const layoutStyle: CSSProperties = {
     ...styles.layout,
@@ -573,8 +605,10 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
       );
       setSelectedFile(null);
       setNotionTarget('');
-      setFeedback({ type: 'success', message: '변환을 시작했습니다. 결과가 준비되면 페이지 편집 또는 Notion 내보내기를 할 수 있습니다.' });
       message.success('변환을 시작했습니다.');
+      // 변환 진행 모달 열기(상태 폴링)
+      setConvStatus({ taskStatus: 'running', jobStatus: 'queued', jobError: null, slideCount: 0 });
+      setConvWatch({ taskId: createdProject.id, title: createdProject.title });
 
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -996,6 +1030,95 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
           </div>
         </Card>
       </section>
+
+      {/* 변환 진행 모달 */}
+      {(() => {
+        const job = convStatus?.jobStatus;
+        const taskDone = convStatus?.taskStatus && ['review_required', 'ready_to_publish', 'published'].includes(convStatus.taskStatus);
+        const succeeded = job === 'succeeded' || taskDone;
+        const failed = job === 'failed' || job === 'cancelled' || convStatus?.taskStatus === 'failed';
+        const inProgress = !succeeded && !failed;
+        const phase = succeeded
+          ? '변환 완료'
+          : failed
+            ? job === 'cancelled'
+              ? '변환이 중단되었습니다'
+              : '변환에 실패했습니다'
+            : job === 'running'
+              ? '슬라이드 분석·렌더 중'
+              : '대기 중 (worker 처리 대기열)';
+        return (
+          <Modal
+            open={!!convWatch}
+            onClose={() => {
+              if (!inProgress) setConvWatch(null);
+            }}
+            title="변환 진행"
+            subtitle={convWatch?.title}
+            size="sm"
+            footer={
+              succeeded ? (
+                <>
+                  <Button variant="default" onClick={() => setConvWatch(null)}>
+                    닫기
+                  </Button>
+                  <Button variant="primary" onClick={() => convWatch && openReview(convWatch.taskId)}>
+                    <GalleryHorizontalEnd size={14} />
+                    검토·수정
+                  </Button>
+                </>
+              ) : failed ? (
+                <Button variant="default" onClick={() => setConvWatch(null)}>
+                  닫기
+                </Button>
+              ) : (
+                <Button
+                  variant="default"
+                  onClick={() => {
+                    if (convWatch) handleCancelTask(convWatch.taskId);
+                    setConvWatch(null);
+                  }}
+                >
+                  <X size={14} />
+                  변환 중단
+                </Button>
+              )
+            }
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: ps.md, padding: ps.md }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: ps.sm }}>
+                {inProgress ? (
+                  <Loader className="nm-spin" size={20} />
+                ) : succeeded ? (
+                  <Check size={20} color={sc.primary.default} />
+                ) : (
+                  <X size={20} color={sc.error.default} />
+                )}
+                <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading }}>{phase}</span>
+              </div>
+              <div style={{ height: 8, borderRadius: pr.sm, background: sc.bg.elevated, overflow: 'hidden' }}>
+                <div
+                  className={inProgress ? 'nm-progress-active' : undefined}
+                  style={{
+                    height: '100%',
+                    width: succeeded ? '100%' : inProgress ? '60%' : '100%',
+                    background: failed ? sc.text.quaternary : sc.primary.default,
+                    borderRadius: pr.sm,
+                    transition: 'width 300ms ease',
+                  }}
+                />
+              </div>
+              <div style={{ fontSize: st.fontSizeSM, color: sc.text.secondary }}>
+                {succeeded
+                  ? `슬라이드 ${convStatus?.slideCount ?? 0}개를 카테고리·기능으로 정리했습니다.`
+                  : failed
+                    ? convStatus?.jobError ?? '잠시 후 다시 시도해 주세요.'
+                    : `정리된 슬라이드 ${convStatus?.slideCount ?? 0}개`}
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
     </main>
   );
 }
