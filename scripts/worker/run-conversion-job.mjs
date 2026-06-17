@@ -83,8 +83,9 @@ async function resolveJob(jobIdArg) {
     .eq('status', 'queued')
     .order('created_at', { ascending: true })
     .limit(1)
-    .single();
-  if (error || !data) throw new Error(error?.message ?? 'No queued job.');
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('No queued job.');
   return data;
 }
 
