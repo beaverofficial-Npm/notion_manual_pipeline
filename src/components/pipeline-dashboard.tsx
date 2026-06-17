@@ -458,6 +458,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [runningTaskId, setRunningTaskId] = useState('');
   const [publishingTaskId, setPublishingTaskId] = useState('');
   const [deletingTaskId, setDeletingTaskId] = useState('');
+  const [cancellingTaskId, setCancellingTaskId] = useState('');
   const [editingTitleId, setEditingTitleId] = useState('');
   const [editTitleValue, setEditTitleValue] = useState('');
   const [progressClock, setProgressClock] = useState(0);
@@ -611,6 +612,21 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     }
 
     setSelectedFile(file);
+  }
+
+  async function handleCancelTask(taskId: string) {
+    if (cancellingTaskId) return;
+    setCancellingTaskId(taskId);
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/cancel`, { method: 'POST' });
+      if (!response.ok) throw new Error('변환을 중단하지 못했습니다.');
+      setProjects((cur) => cur.map((project) => (project.id === taskId ? { ...project, status: 'failed' } : project)));
+      message.success('변환을 중단했습니다.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '변환을 중단하지 못했습니다.');
+    } finally {
+      setCancellingTaskId('');
+    }
   }
 
   async function handleRunTask(taskId: string) {
@@ -908,10 +924,16 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
                     <div style={taskActionsStyle}>
                       {project.status === 'running' || isRunning ? (
-                        <Button variant="primary" size="sm" disabled>
-                          <Play size={14} />
-                          분석 중
-                        </Button>
+                        <>
+                          <Button variant="primary" size="sm" disabled>
+                            <Play size={14} />
+                            분석 중
+                          </Button>
+                          <Button variant="default" size="sm" disabled={cancellingTaskId === project.id} onClick={() => handleCancelTask(project.id)}>
+                            <X size={14} />
+                            변환 중단
+                          </Button>
+                        </>
                       ) : null}
                       {project.status === 'publishing' || isPublishing ? (
                         <Button variant="primary" size="sm" disabled>

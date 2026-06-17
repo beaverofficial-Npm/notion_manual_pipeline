@@ -1,6 +1,6 @@
 # 웹(next start)과 변환 worker(poll-loop)를 한 이미지로 빌드한다.
 # 변환에 필요한 LibreOffice/Poppler/한글폰트를 포함한다.
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-impress \
