@@ -2,6 +2,10 @@ import 'server-only';
 import sharp from 'sharp';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
 
+// 작은 컨테이너(Railway)에서 발행 중 OOM 으로 죽지 않도록 sharp 메모리를 묶는다.
+sharp.cache(false);
+sharp.concurrency(1);
+
 const RENDER_BUCKET = 'manual-renders';
 const ASSET_BUCKET = 'manual-assets';
 const NOTION_VERSION = '2022-06-28';
@@ -41,19 +45,14 @@ export async function cropRender(renderBuffer: Buffer, cropBox: PercentBox): Pro
   return image.extract({ left, top, width: cropWidth, height: cropHeight }).png().toBuffer();
 }
 
-const renderCache = new Map<string, Buffer>();
-
+// 발행 루프는 슬라이드 단위로 한 번만 호출한다. 전역 캐시를 두면 모든 렌더 PNG 가
+// 프로세스 수명 동안 누적되어(메모리 누수) 작은 컨테이너에서 OOM 을 일으키므로 캐시하지 않는다.
 export async function loadRender(renderPath: string): Promise<Buffer> {
-  const cached = renderCache.get(renderPath);
-  if (cached) return cached;
-
   const supabase = createServiceSupabaseClient();
   const { data, error } = await supabase.storage.from(RENDER_BUCKET).download(renderPath);
   if (error || !data) throw new Error(error?.message ?? `렌더를 불러오지 못했습니다: ${renderPath}`);
 
-  const buffer = Buffer.from(await data.arrayBuffer());
-  renderCache.set(renderPath, buffer);
-  return buffer;
+  return Buffer.from(await data.arrayBuffer());
 }
 
 // 잘린 이미지를 manual-assets 버킷에 저장하고 storage_path 를 반환한다.

@@ -7,8 +7,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     unzip \
     fonts-noto-cjk \
+    fonts-noto-cjk-extra \
+    fonts-nanum \
+    fontconfig \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# Windows 한글 폰트(맑은 고딕 등) → 설치 폰트 매핑. 대체 폰트를 예측 가능하게 해 텍스트 넘침/겹침을 줄인다.
+COPY docker/fonts-local.conf /etc/fonts/conf.d/99-korean-aliases.conf
+RUN fc-cache -f
 
 WORKDIR /app
 

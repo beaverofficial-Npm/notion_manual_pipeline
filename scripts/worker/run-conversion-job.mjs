@@ -398,6 +398,32 @@ export async function reclaimStuckJobs() {
   return data?.length ?? 0;
 }
 
+// 죽은 발행(프로세스 종료/OOM 으로 멈춘 publish run)을 회수한다.
+// 발행은 보통 2분 내 끝나므로 10분 넘게 running 인 run 은 죽은 것으로 보고
+// run 을 failed, 해당 task 를 review_required 로 되돌려 다시 발행할 수 있게 한다.
+export async function reclaimStuckPublishRuns() {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('manual_publish_runs')
+    .update({ status: 'failed', error_message: '발행 중 서버가 중단되어 회수됨', finished_at: new Date().toISOString() })
+    .eq('status', 'running')
+    .lt('started_at', cutoff)
+    .select('id,task_id');
+  if (error) {
+    console.error('[worker] publish reclaim error:', error.message);
+    return 0;
+  }
+  const taskIds = [...new Set((data ?? []).map((r) => r.task_id).filter(Boolean))];
+  if (taskIds.length) {
+    await supabase
+      .from('manual_tasks')
+      .update({ status: 'review_required', updated_at: new Date().toISOString() })
+      .in('id', taskIds)
+      .eq('status', 'publishing');
+  }
+  return data?.length ?? 0;
+}
+
 // 직접 실행(`node run-conversion-job.mjs [jobId]`)이면 한 번 처리한다. 폴링 루프는 runOnce 를 import 해 사용.
 if (process.argv[1] && process.argv[1].endsWith('run-conversion-job.mjs')) {
   runOnce(process.argv[2]).catch((error) => {
