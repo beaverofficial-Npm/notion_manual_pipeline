@@ -9,8 +9,10 @@ interface RouteContext {
   }>;
 }
 
-function startLocalConversionWorker(jobId: string) {
-  if (process.env.NODE_ENV === 'production' || process.env.LOCAL_AUTO_WORKER === '0') return;
+function startInlineConversionWorker(jobId: string) {
+  // 컨테이너(Railway 등)에 LibreOffice/Poppler가 있으면 같은 인스턴스에서 변환을 처리한다.
+  // 바이너리가 없는 환경(예: Vercel)이나 별도 worker 서비스를 쓸 때는 INLINE_WORKER=0 으로 끈다.
+  if (process.env.INLINE_WORKER === '0') return;
 
   const child = spawn(process.execPath, ['scripts/worker/run-conversion-job.mjs', jobId], {
     cwd: process.cwd(),
@@ -82,7 +84,7 @@ export async function POST(_request: Request, context: RouteContext) {
     return NextResponse.json({ message: updateError.message }, { status: 500 });
   }
 
-  startLocalConversionWorker(job.id);
+  startInlineConversionWorker(job.id);
 
   const project = await getManualProject(taskId);
 
