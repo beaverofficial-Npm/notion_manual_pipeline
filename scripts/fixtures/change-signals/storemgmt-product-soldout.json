@@ -1,0 +1,23 @@
+{
+  "source_type": "manual",
+  "external_id": "fixture-storemgmt-product-soldout-20260619",
+  "product": "storemgmt",
+  "title": "상품 화면의 품절 처리 UX 변경",
+  "body": "판매상품 목록에서 품절 상태 표시와 품절 토글 위치가 변경되었다. 상품관리/판매상품 관련 매뉴얼 갱신 필요.",
+  "hints": {
+    "routes": [
+      "/new_product_management/sales_settings/store",
+      "/new_product_management/sales_settings/brand"
+    ],
+    "keywords": [
+      "상품",
+      "판매상품",
+      "품절",
+      "품절여부",
+      "토글",
+      "판매상품설정"
+    ],
+    "kms_class_codes": [],
+    "figma_node_ids": []
+  }
+}

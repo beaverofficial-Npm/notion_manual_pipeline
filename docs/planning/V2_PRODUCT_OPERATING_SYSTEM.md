@@ -124,3 +124,14 @@ v2 1차 완료는 다음 조건을 모두 만족해야 한다.
 8. 승인된 갱신안은 Notion 발행 preview를 만든다.
 9. 발행 결과와 mapping이 저장된다.
 10. 전체 흐름을 검증하는 하니스가 CI/로컬에서 실행된다.
+
+## 8. 현재 하니스 상태
+
+| 레벨 | 상태 | 근거 |
+| --- | --- | --- |
+| L0 목적 하니스 | 통과 | `npm run verify:v2-purpose` |
+| v1 자산 보호 | 통과 | `npm run verify:requirements` |
+| L1 Schema | migration 작성 완료, DB 적용 대기 | `supabase/migrations/002_maintenance_v2.sql` |
+| L2 Fixture local | 통과 | `npm run verify:v2-fixture:local` |
+| L2 Fixture DB | 대기 | SQL 적용 후 `npm run verify:v2-fixture:db` |
+| L3~L5 | 미구현 | 갱신안 UI/승인/멱등 발행 필요 |

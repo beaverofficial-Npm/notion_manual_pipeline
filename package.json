@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "verify:requirements": "node scripts/verify-requirements-harness.mjs",
     "verify:v2-purpose": "node scripts/verify-v2-purpose-harness.mjs",
-    "verify:all": "npm run verify:requirements && npm run verify:v2-purpose && npm run typecheck",
+    "verify:v2-fixture:local": "node scripts/maintenance/verify-fixture-flow.mjs",
+    "verify:v2-fixture:db": "node scripts/maintenance/verify-fixture-flow.mjs --db",
+    "verify:all": "npm run verify:requirements && npm run verify:v2-purpose && npm run verify:v2-fixture:local && npm run typecheck",
     "worker:conversion": "node scripts/worker/run-conversion-job.mjs",
     "worker:poll": "node scripts/worker/poll-loop.mjs"
   },

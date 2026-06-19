@@ -118,7 +118,7 @@ v1의 렌더, asset, review_required, publish run, Notion mapping 구조는 v2�
 
 완료 조건:
 
-- additive migration 작성
+- additive migration 작성: `supabase/migrations/002_maintenance_v2.sql`
 - SQL 실행 전 보고 가능
 - type/API contract 문서화
 
@@ -133,6 +133,13 @@ v1의 렌더, asset, review_required, publish run, Notion mapping 구조는 v2�
 - 후보 1개 이상
 - evidence_refs 1개 이상
 - score/reasons 저장
+
+현재 구현:
+
+- fixture: `scripts/fixtures/change-signals/storemgmt-product-soldout.json`
+- local harness: `npm run verify:v2-fixture:local`
+- DB harness: `npm run verify:v2-fixture:db`
+- local 결과: storemgmt realmeasure 142건 중 `상품관리 > 판매상품관리 > 매장 판매상품설정`을 Top 후보로 탐지, `품절여부` table column evidence 확보
 
 ### M3. Draft Queue
 
@@ -183,6 +190,12 @@ v1의 렌더, asset, review_required, publish run, Notion mapping 구조는 v2�
 5. 사람이 `approved` 또는 `edited`로 바꿀 수 있다.
 6. Notion preview가 생성된다.
 7. 발행 후 mapping이 저장된다.
+
+현재 자동 검증 범위:
+
+- local: 2~3 일부 검증. DB 없이 realmeasure evidence 기반 후보 생성까지 검증한다.
+- db: 1~4 검증 예정. `002_maintenance_v2.sql` 적용 후 실행한다.
+- publish: 5~7은 아직 미구현이다.
 
 ## 11. 성공/실패 판정
 
