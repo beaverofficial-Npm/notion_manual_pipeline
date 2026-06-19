@@ -11,6 +11,7 @@ import {
   semanticTypography,
 } from '@sungbinhwang-beaverworksinc/design-system';
 import { Check, Edit2, ExternalLink, FileUp, GalleryHorizontalEnd, Loader, Play, Send, Trash2, X } from 'lucide-react';
+import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -49,7 +50,34 @@ const styles = {
     padding: `${ps.lg}px 0`,
   },
   header: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: ps.md,
     marginBottom: ps.base,
+    flexWrap: 'wrap',
+  },
+  headerCopy: {
+    display: 'grid',
+    gap: ps.xxs,
+    minWidth: 0,
+  },
+  builderLink: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: ps.xs,
+    minHeight: 36,
+    padding: `0 ${ps.sm}px`,
+    color: sc.primary.default,
+    background: sc.primary.bg,
+    border: `1px solid ${sc.primary.border}`,
+    borderRadius: pr.base,
+    textDecoration: 'none',
+    fontSize: st.fontSize,
+    fontWeight: st.fontWeightStrong,
+    lineHeight: st.lineHeight,
+    whiteSpace: 'nowrap',
   },
   title: {
     margin: 0,
@@ -815,10 +843,16 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   return (
     <main style={styles.shell}>
       <header style={styles.header}>
-        <h1 style={styles.title}>PPT → Notion 매뉴얼 변환</h1>
-        <p style={styles.description}>
-          PPT를 올리면 목차·표지를 분석해 카테고리·이미지·텍스트로 정리합니다. 변환 목록에서 내용을 검토·수정한 뒤 Notion으로 내보냅니다.
-        </p>
+        <div style={styles.headerCopy}>
+          <h1 style={styles.title}>PPT → Notion 매뉴얼 변환</h1>
+          <p style={styles.description}>
+            PPT를 올리면 목차·표지를 분석해 카테고리·이미지·텍스트로 정리합니다. 변환 목록에서 내용을 검토·수정한 뒤 Notion으로 내보냅니다.
+          </p>
+        </div>
+        <Link href="/manual-builder" style={styles.builderLink}>
+          <GalleryHorizontalEnd size={16} />
+          매뉴얼 빌더
+        </Link>
       </header>
 
       <section style={layoutStyle}>

@@ -96,3 +96,4 @@ https://github.com/sungbinhwang-beaverworks/notion_manual_pipeline
 - [Quality Gates](docs/planning/QUALITY_GATES.md)
 - [Infrastructure](docs/planning/INFRA.md)
 - [Revision Plan](docs/planning/REVISION_PLAN.md)
+- [Current Status](docs/planning/CURRENT_STATUS.md)
