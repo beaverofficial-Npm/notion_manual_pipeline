@@ -6,7 +6,7 @@
 
 이번 실행은 PPT를 단순 변환하는 흐름이 아니라, 제품 변경 신호를 받아 실제 화면 실측 데이터에서 영향 매뉴얼 단위를 찾고, 갱신안 초안을 만드는 루프를 검증하는 목적이다.
 
-원격 Supabase DB 쓰기 검증은 아직 닫히지 않았다. 이유는 코드 문제가 아니라 v2 migration이 원격 DB에 적용되어 있지 않기 때문이다.
+원격 Supabase DB 쓰기 검증까지 닫혔다. v2 migration 적용 후 fixture harness가 실제 Supabase row 생성까지 성공했다.
 
 ## 현재 반영된 커밋
 
@@ -115,60 +115,29 @@ npm run verify:v2-fixture:db
 결과:
 
 ```text
-manual_anchor_units is not available.
-Apply supabase/migrations/002_maintenance_v2.sql first.
-Could not find the table 'public.manual_anchor_units' in the schema cache
+ok: true
+mode: db
+screenCount: 142
+candidateCount: 5
+changeSignalId: 7b9abe80-5998-4859-a5c6-5d99f87c8c03
+rows: 5
 ```
 
 판단:
 
 ```text
-v2 DB schema가 원격 Supabase에 아직 적용되지 않았다.
+v2 DB schema 적용 및 실제 DB 쓰기 검증 완료.
 ```
 
-## DB migration 직접 적용을 못 끝낸 이유
+## DB migration 적용 이력
 
-현재 로컬/배포 환경에서 확인된 값:
-
-```text
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-NOTION_TOKEN
-NOTION_MANUAL_DATABASE_ID
-NOTION_MANUAL_DATA_SOURCE_ID
-```
-
-DDL 적용에 필요한 값은 없다.
-
-필요하지만 현재 없음:
-
-```text
-DATABASE_URL 또는 Postgres password
-Supabase CLI용 sbp_... access token
-SQL 실행 RPC
-```
-
-확인한 실패 경로:
-
-| 경로 | 결과 |
-|---|---|
-| Supabase REST + service role | 테이블 생성 DDL 실행 불가 |
-| `exec_sql`, `execute_sql`, `run_sql`, `sql` RPC | 존재하지 않음 |
-| Supabase CLI | `sbp_...` access token 또는 DB password 필요 |
-| `psql` | 로컬에 설치되어 있지 않음 |
-
-따라서 현재 권한으로는 원격 DB migration을 직접 적용할 수 없다.
-
-## 적용해야 하는 SQL
-
-Supabase SQL editor에서 아래 파일 전체를 실행한다.
+Supabase SQL editor에서 아래 migration이 적용되었다.
 
 ```text
 supabase/migrations/002_maintenance_v2.sql
 ```
 
-생성되는 v2 테이블:
+생성된 v2 테이블:
 
 | 테이블 | 역할 |
 |---|---|
@@ -178,29 +147,17 @@ supabase/migrations/002_maintenance_v2.sql
 | `manual_impact_candidates` | 변경 신호가 영향을 줄 후보 단위 |
 | `manual_update_drafts` | 사람 검수 전 갱신안 초안 |
 
-모두 additive schema이며 기존 v1 테이블을 변경하거나 삭제하지 않는다.
+## DB에 생성된 검증 row
 
-## SQL 적용 직후 닫아야 할 검증
+| 항목 | 값 |
+|---|---|
+| change signal | `7b9abe80-5998-4859-a5c6-5d99f87c8c03` |
+| anchor units | 5 rows |
+| product anchors | 5 rows |
+| impact candidates | 5 rows |
+| update drafts | 5 rows |
 
-```bash
-npm run verify:v2-fixture:db
-```
-
-기대 결과:
-
-```text
-ok: true
-mode: db
-screenCount: 142
-candidateCount: 5
-db.changeSignalId: present
-db.rows[].unitId: present
-db.rows[].anchorId: present
-db.rows[].impactCandidateId: present
-db.rows[].updateDraftId: present
-```
-
-이 검증이 통과하면 v2 L1/L2 하니스는 원격 Supabase까지 닫힌다.
+모두 fixture 재실행 시 중복 생성이 아니라 upsert로 갱신된다.
 
 ## 다음 제품 구현 순서
 
@@ -226,4 +183,3 @@ db.rows[].updateDraftId: present
 승인된 변경만 Notion에 중복 없이 반영되고,
 그 mapping과 피드백이 다음 자동화 품질로 누적된다.
 ```
-
