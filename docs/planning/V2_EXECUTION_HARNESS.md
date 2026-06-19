@@ -182,13 +182,13 @@ Asana/Figma/manual 입력을 정규화한다.
 
 ## 7. 현재 판정
 
-현재 상태는 **L0 통과, L1 migration 작성 완료, L2 local fixture 통과, L2 DB fixture는 SQL 적용 대기**다.
+현재 상태는 **L0 통과, L1 원격 DB 적용 완료, L2 local fixture 통과, L2 DB fixture 통과**다.
 
 - v1 PPT->Notion 변환기는 운영 자산으로 존재한다.
 - seed/manual-builder 경로는 제거됐다.
-- v2 유지보수 루프의 additive migration은 `supabase/migrations/002_maintenance_v2.sql`에 작성됐다.
+- v2 유지보수 루프의 additive migration은 `supabase/migrations/002_maintenance_v2.sql`에 작성됐고 Supabase 원격 DB에 적용됐다.
 - `scripts/fixtures/change-signals/storemgmt-product-soldout.json` 변경신호 fixture가 존재한다.
 - `npm run verify:v2-fixture:local`은 실제 storemgmt realmeasure 142건을 읽어 영향 후보를 생성한다.
-- DB row 생성 하니스인 `npm run verify:v2-fixture:db`는 SQL 적용 후 실행한다.
+- DB row 생성 하니스인 `npm run verify:v2-fixture:db`는 통과했다.
 
-따라서 다음 실제 작업은 SQL 적용 후 **L2 DB Fixture Harness**를 실행하는 것이다.
+따라서 다음 실제 작업은 **L3 Evidence Harness**, **변경신호 API**, **갱신안 검수 UI** 구현이다.
