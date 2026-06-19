@@ -1,6 +1,6 @@
 # Current Status
 
-작성일: 2026-06-18
+작성일: 2026-06-19
 
 이 문서는 Notion Manual Pipeline의 현재 구현, 배포, 검증 상태를 한 페이지에서 확인하기 위한 현행 문서이다. 상세 기획은 `PRD.md`, `PIPELINE_SPEC.md`, `TECHNICAL_DESIGN.md`, `E2E_PIPELINE_PLAN.md`를 기준으로 한다.
 
@@ -19,7 +19,7 @@ PPT 업로드 → 변환 job 생성 → Railway 상주 worker 변환 → 웹 검
 | 배포 환경 | Railway production |
 | 서비스 | `notion_manual_pipeline` |
 | Public domain | `https://notionmanualpipeline-production.up.railway.app` |
-| 최신 배포 커밋 | `fab3d7e fix: 빈 검수 페이지 생성 방지` |
+| 최신 배포 커밋 | 배포 확인 시점 기준 main 최신 커밋 |
 | 최신 배포 상태 | `SUCCESS` |
 | 빌더 | Dockerfile |
 | 런타임 구성 | Next.js web + conversion worker 단일 컨테이너 |
@@ -128,6 +128,13 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker im
 - 발행 중 취소
 - publish run 및 Notion mapping 저장
 - 발행 완료 URL 표시
+
+### 요구사항 하니스
+
+- seed/manual-builder 기반 화면은 운영 목적과 충돌하므로 제거
+- 앱 런타임에는 사전 생성된 마스터 문서 JSON을 포함하지 않음
+- 메인 제품 경로는 `PPT 업로드 -> Supabase 저장 -> worker 변환 -> 검수/수정 -> Notion 발행`
+- `npm run verify:requirements`로 seed/manual-builder 경로가 다시 들어오지 않는지 검증
 
 ## 5. 최근 해결한 주요 문제
 

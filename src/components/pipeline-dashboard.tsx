@@ -10,8 +10,7 @@ import {
   semanticColors,
   semanticTypography,
 } from '@sungbinhwang-beaverworksinc/design-system';
-import { Check, Edit2, ExternalLink, FileUp, GalleryHorizontalEnd, Loader, Play, Send, Trash2, X } from 'lucide-react';
-import Link from 'next/link';
+import { Check, Edit2, ExternalLink, FileUp, Loader, Play, Send, Trash2, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import type {
@@ -61,23 +60,6 @@ const styles = {
     display: 'grid',
     gap: ps.xxs,
     minWidth: 0,
-  },
-  builderLink: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: ps.xs,
-    minHeight: 36,
-    padding: `0 ${ps.sm}px`,
-    color: sc.primary.default,
-    background: sc.primary.bg,
-    border: `1px solid ${sc.primary.border}`,
-    borderRadius: pr.base,
-    textDecoration: 'none',
-    fontSize: st.fontSize,
-    fontWeight: st.fontWeightStrong,
-    lineHeight: st.lineHeight,
-    whiteSpace: 'nowrap',
   },
   title: {
     margin: 0,
@@ -849,10 +831,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             PPT를 올리면 목차·표지를 분석해 카테고리·이미지·텍스트로 정리합니다. 변환 목록에서 내용을 검토·수정한 뒤 Notion으로 내보냅니다.
           </p>
         </div>
-        <Link href="/manual-builder" style={styles.builderLink}>
-          <GalleryHorizontalEnd size={16} />
-          매뉴얼 빌더
-        </Link>
       </header>
 
       <section style={layoutStyle}>
@@ -1033,7 +1011,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       {!isBusy && project.status === 'review_required' ? (
                         <>
                           <Button variant="default" size="sm" disabled={!canReview} onClick={() => openReview(project.id)}>
-                            <GalleryHorizontalEnd size={14} />
+                            <Edit2 size={14} />
                             검토·수정
                           </Button>
                           <Button variant="primary" size="sm" disabled={!canPublish} onClick={() => handlePublishTask(project.id)}>
@@ -1045,7 +1023,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       {!isBusy && project.status === 'ready_to_publish' ? (
                         <>
                           <Button variant="default" size="sm" disabled={!canReview} onClick={() => openReview(project.id)}>
-                            <GalleryHorizontalEnd size={14} />
+                            <Edit2 size={14} />
                             수정하기
                           </Button>
                           <Button variant="primary" size="sm" disabled={!canPublish} onClick={() => handlePublishTask(project.id)}>
@@ -1057,7 +1035,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       {!isBusy && project.status === 'published' ? (
                         <>
                           <Button variant="default" size="sm" disabled={!canReview} onClick={() => openReview(project.id)}>
-                            <GalleryHorizontalEnd size={14} />
+                            <Edit2 size={14} />
                             수정하기
                           </Button>
                           <Button variant="primary" size="sm" disabled={!canPublish} onClick={() => handlePublishTask(project.id)}>
@@ -1125,7 +1103,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                     닫기
                   </Button>
                   <Button variant="primary" onClick={() => convWatch && openReview(convWatch.taskId)}>
-                    <GalleryHorizontalEnd size={14} />
+                    <Edit2 size={14} />
                     검토·수정
                   </Button>
                 </>

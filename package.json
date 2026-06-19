@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "verify:requirements": "node scripts/verify-requirements-harness.mjs",
     "worker:conversion": "node scripts/worker/run-conversion-job.mjs",
     "worker:poll": "node scripts/worker/poll-loop.mjs"
   },
