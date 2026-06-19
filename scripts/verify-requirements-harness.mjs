@@ -87,4 +87,4 @@ if (failures.length > 0) {
   process.exit(1);
 }
 
-console.log('Requirements harness passed: operational PPT -> Supabase -> review -> Notion pipeline remains the product path.');
+console.log('Requirements harness passed: v1 pipeline assets are intact and seeded manual-builder runtime paths are blocked.');

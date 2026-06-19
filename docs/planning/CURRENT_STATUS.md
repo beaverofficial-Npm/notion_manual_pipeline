@@ -133,7 +133,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker im
 
 - seed/manual-builder 기반 화면은 운영 목적과 충돌하므로 제거
 - 앱 런타임에는 사전 생성된 마스터 문서 JSON을 포함하지 않음
-- 메인 제품 경로는 `PPT 업로드 -> Supabase 저장 -> worker 변환 -> 검수/수정 -> Notion 발행`
+- v1 운영 자산 경로는 `PPT 업로드 -> Supabase 저장 -> worker 변환 -> 검수/수정 -> Notion 발행`
 - `npm run verify:requirements`로 seed/manual-builder 경로가 다시 들어오지 않는지 검증
 
 ## 5. 최근 해결한 주요 문제

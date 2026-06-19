@@ -1,28 +1,30 @@
-# Requirements Harness Review
+# V1 Asset Guard Harness Review
 
 작성일: 2026-06-19
 
 ## 결론
 
-조건부 진행.
+진행 가능.
 
-프로젝트의 목적은 더미/seed 데이터 뷰어가 아니라 `PPT 업로드 -> 변환 실행 -> Supabase 저장 -> 웹 검수/수정 -> Notion 발행`이 실제로 도는 운영 파이프라인이다. 기존 파이프라인 핵심은 존재하지만, 별도 seed 기반 `manual-builder` 화면은 목적과 충돌하므로 제거했다.
+이 문서는 v2 제품 목적 문서가 아니다. v2 목적은 `V2_PRODUCT_OPERATING_SYSTEM.md`를 기준으로 한다.
+
+이 하니스의 역할은 v2 기반 자산인 v1 PPT->Notion 파이프라인이 깨지지 않았는지, 그리고 앱 런타임이 seed/manual-builder 뷰어로 다시 새지 않는지 확인하는 것이다.
 
 ## 사실
 
 | 항목 | 확인 내용 |
 | --- | --- |
-| 제품 목표 | PPT 매뉴얼을 업로드해 Notion 발행 가능한 초안을 만들고, 웹에서 검수/수정/발행한다. |
+| v1 자산 | PPT 매뉴얼을 업로드해 Notion 발행 가능한 초안을 만들고, 웹에서 검수/수정/발행한다. |
 | Backend of record | Supabase DB/Storage가 작업, 원본, 렌더, asset, Notion 후보, 발행 이력을 저장한다. |
 | Worker | Railway 컨테이너에서 LibreOffice/Poppler 기반 변환 worker가 queued job을 처리한다. |
 | Notion | 발행 전 preview를 만들고, 승인 후 Notion page/block을 생성한다. |
 | 금지된 방향 | 앱 런타임에 사전 생성된 마스터 문서 JSON/seed 데이터를 넣고 제품처럼 보여주는 방식. |
 
-## 수정된 기준
+## v1 자산 보호 기준
 
 1. 첫 화면은 실제 작업 생성 화면이어야 한다.
 2. 목록은 Supabase의 실제 `manual_tasks`만 표시해야 한다.
-3. PPT 또는 마스터 문서는 사용자가 업로드한 원본으로 저장되어야 한다.
+3. PPT 입력은 사용자가 업로드한 원본으로 저장되어야 한다.
 4. 변환 결과는 worker가 생성하고 DB/Storage에 저장해야 한다.
 5. 목차/표지/구분 슬라이드는 발행 대상이 아니라 구조 판별 근거로 처리한다.
 6. 검수 화면은 저장된 slide/asset/block 후보를 수정하는 화면이어야 한다.
@@ -38,7 +40,7 @@
 | `src/data/manual-builder/*.json` | 운영 입력이 아닌 사전 생성 데이터가 런타임에 포함됐다. |
 | 메인 `매뉴얼 빌더` 진입 링크 | 사용자의 시작점을 실제 변환 플로우가 아닌 seed 검토 화면으로 분산시켰다. |
 
-## 현재 유지할 운영 흐름
+## 현재 유지할 v1 흐름
 
 ```text
 메인 화면
@@ -56,7 +58,7 @@
 -> manual_publish_runs/manual_notion_mappings 저장
 ```
 
-## 남은 Gap
+## v2로 넘겨야 하는 Gap
 
 | Gap | 영향 | 다음 조치 |
 | --- | --- | --- |
