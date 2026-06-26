@@ -463,6 +463,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [projects, setProjects] = useState(initialProjects);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [notionTarget, setNotionTarget] = useState('');
+  const [conversionMode, setConversionMode] = useState<'capture' | 'group_bake'>('capture');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -587,6 +588,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('notionTarget', notionTarget);
+    formData.append('mode', conversionMode);
 
     try {
       const response = await fetch('/api/tasks', {
@@ -879,6 +881,36 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             </label>
 
             <div style={styles.newTaskControls}>
+              <label style={{ ...styles.field, opacity: selectedFile ? 1 : 0.5 }}>
+                변환 방식
+                <div style={{ display: 'flex', gap: ps.md, marginTop: ps.xs }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: ps.xs, cursor: selectedFile ? 'pointer' : 'default' }}>
+                    <input
+                      type="radio"
+                      name="conversion_mode"
+                      value="capture"
+                      checked={conversionMode === 'capture'}
+                      disabled={!selectedFile}
+                      onChange={() => setConversionMode('capture')}
+                      style={{ cursor: selectedFile ? 'pointer' : 'default' }}
+                    />
+                    <span style={{ ...styles.smallText, margin: 0 }}>캡쳐 (기본)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: ps.xs, cursor: selectedFile ? 'pointer' : 'default' }}>
+                    <input
+                      type="radio"
+                      name="conversion_mode"
+                      value="group_bake"
+                      checked={conversionMode === 'group_bake'}
+                      disabled={!selectedFile}
+                      onChange={() => setConversionMode('group_bake')}
+                      style={{ cursor: selectedFile ? 'pointer' : 'default' }}
+                    />
+                    <span style={{ ...styles.smallText, margin: 0 }}>그룹 베이크</span>
+                  </label>
+                </div>
+              </label>
+
               <label style={{ ...styles.field, opacity: selectedFile ? 1 : 0.5 }}>
                 Notion 대상
                 <input

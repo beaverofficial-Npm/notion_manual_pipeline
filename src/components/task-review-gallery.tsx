@@ -27,6 +27,8 @@ interface Asset {
   review_status: string;
   confidence: number | null;
   slide_id?: string;
+  storage_path?: string | null;
+  signed_url?: string | null;
 }
 
 interface Block {
@@ -1665,42 +1667,71 @@ export function TaskReviewGallery({ taskId }: TaskReviewGalleryProps) {
               <div style={styles.slideGridLayout}>
                 {/* 상단: 슬라이드 이미지(전체 폭) */}
                 <div data-crop-container style={styles.slideImageContainer}>
-                  {slide.render_url ? (
+                  {slide.render_url || (slide.assets.some((a) => a.kind === 'group_bake' && a.signed_url)) ? (
                     <>
-                      <img src={slide.render_url} alt={`Slide ${slide.slide_number}`} style={styles.image} />
-                      {slide.assets.map((asset) => {
-                        const box = normalizeCropBox(asset.crop_box);
-                        const isSelected = asset.id === selectedAsset?.id;
-                        const isExcluded = selectedFunction.review_status === 'excluded';
+                      {/* 기본 슬라이드 렌더 이미지 또는 group_bake 첫 에셋 표시 */}
+                      {slide.render_url && <img src={slide.render_url} alt={`Slide ${slide.slide_number}`} style={styles.image} />}
 
-                        return (
-                          <div
-                            key={asset.id}
-                            role="button"
-                            tabIndex={0}
-                            style={{
-                              ...styles.cropOverlay,
-                              ...(isSelected ? styles.selectedCropOverlay : {}),
-                              ...(isExcluded ? styles.excludedOverlay : {}),
-                              left: `${box.left}%`,
-                              top: `${box.top}%`,
-                              width: `${box.width}%`,
-                              height: `${box.height}%`,
-                            }}
-                            onPointerDown={(event) => startCropInteraction(event, asset, 'move')}
-                            onClick={() => setSelectedAssetId(asset.id)}
-                          >
-                            <span style={{ ...styles.cropLabel, ...(isSelected ? styles.cropLabelSelected : {}) }}>{asset.label}</span>
-                            {isSelected && !isExcluded && (
-                              <span
-                                role="button"
-                                style={styles.resizeHandle}
-                                onPointerDown={(event) => startCropInteraction(event, asset, 'resize')}
-                              />
-                            )}
-                          </div>
-                        );
-                      })}
+                      {/* group_bake 에셋은 signed_url로 직접 표시 */}
+                      {slide.assets
+                        .filter((asset) => asset.kind === 'group_bake' && asset.signed_url)
+                        .map((asset) => {
+                          const isSelected = asset.id === selectedAsset?.id;
+                          return (
+                            <div
+                              key={asset.id}
+                              role="button"
+                              tabIndex={0}
+                              style={{
+                                ...styles.image,
+                                cursor: 'pointer',
+                                opacity: isSelected ? 1 : 0.8,
+                                border: isSelected ? `3px solid ${sc.primary.default}` : 'none',
+                              }}
+                              onClick={() => setSelectedAssetId(asset.id)}
+                            >
+                              <img src={asset.signed_url as string} alt={asset.label} style={styles.image} />
+                              <span style={{ ...styles.cropLabel, ...(isSelected ? styles.cropLabelSelected : {}) }}>{asset.label}</span>
+                            </div>
+                          );
+                        })}
+
+                      {/* capture 에셋은 기존 crop_box 오버레이로 표시 */}
+                      {slide.assets
+                        .filter((asset) => asset.kind !== 'group_bake')
+                        .map((asset) => {
+                          const box = normalizeCropBox(asset.crop_box);
+                          const isSelected = asset.id === selectedAsset?.id;
+                          const isExcluded = selectedFunction.review_status === 'excluded';
+
+                          return (
+                            <div
+                              key={asset.id}
+                              role="button"
+                              tabIndex={0}
+                              style={{
+                                ...styles.cropOverlay,
+                                ...(isSelected ? styles.selectedCropOverlay : {}),
+                                ...(isExcluded ? styles.excludedOverlay : {}),
+                                left: `${box.left}%`,
+                                top: `${box.top}%`,
+                                width: `${box.width}%`,
+                                height: `${box.height}%`,
+                              }}
+                              onPointerDown={(event) => startCropInteraction(event, asset, 'move')}
+                              onClick={() => setSelectedAssetId(asset.id)}
+                            >
+                              <span style={{ ...styles.cropLabel, ...(isSelected ? styles.cropLabelSelected : {}) }}>{asset.label}</span>
+                              {isSelected && !isExcluded && (
+                                <span
+                                  role="button"
+                                  style={styles.resizeHandle}
+                                  onPointerDown={(event) => startCropInteraction(event, asset, 'resize')}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
                     </>
                   ) : (
                     <div style={styles.imageFallback}>

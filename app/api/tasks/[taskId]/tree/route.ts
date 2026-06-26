@@ -8,6 +8,7 @@ interface RouteContext {
 }
 
 const RENDER_BUCKET = 'manual-renders';
+const ASSET_BUCKET = 'manual-assets';
 
 // 검수 화면용 계층 트리: 카테고리 → 기능 → 슬라이드(+크롭 후보, 블록 요약).
 export async function GET(_request: Request, context: RouteContext) {
@@ -47,13 +48,14 @@ export async function GET(_request: Request, context: RouteContext) {
     kind: string;
     label: string;
     crop_box: unknown;
+    storage_path: string | null;
     review_status: string;
     confidence: number | null;
   }> = [];
   if (slideIds.length) {
     const { data: assets } = await supabase
       .from('manual_assets')
-      .select('id,slide_id,kind,label,crop_box,review_status,confidence')
+      .select('id,slide_id,kind,label,crop_box,storage_path,review_status,confidence')
       .in('slide_id', slideIds)
       .order('created_at');
     assetRows = assets ?? [];
@@ -66,10 +68,25 @@ export async function GET(_request: Request, context: RouteContext) {
     if (data?.signedUrl) signedUrlByPath.set(renderPath, data.signedUrl);
   }
 
-  const assetsBySlide = new Map<string, typeof assetRows>();
+  // group_bake 에셋의 storage_path를 signed URL로 변환 (lazy batch)
+  const signedUrlByAssetStoragePath = new Map<string, string>();
+  const assetStoragePaths = assetRows
+    .filter((asset) => asset.storage_path && asset.kind === 'group_bake')
+    .map((asset) => asset.storage_path as string);
+
+  for (const storagePath of assetStoragePaths) {
+    const { data } = await supabase.storage.from(ASSET_BUCKET).createSignedUrl(storagePath, 60 * 30);
+    if (data?.signedUrl) signedUrlByAssetStoragePath.set(storagePath, data.signedUrl);
+  }
+
+  const assetsBySlide = new Map<string, Array<typeof assetRows[number] & { signed_url?: string | null }>>();
   for (const asset of assetRows) {
     const current = assetsBySlide.get(asset.slide_id) ?? [];
-    current.push(asset);
+    // group_bake 에셋이고 storage_path가 있으면 signed_url 추가
+    const assetWithUrl = asset.storage_path && asset.kind === 'group_bake'
+      ? { ...asset, signed_url: signedUrlByAssetStoragePath.get(asset.storage_path) ?? null }
+      : asset;
+    current.push(assetWithUrl);
     assetsBySlide.set(asset.slide_id, current);
   }
 
