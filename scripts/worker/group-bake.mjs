@@ -56,12 +56,25 @@ function extractTopLevelGroups(slideXml) {
   }
   const spTreeContent = spTreeMatch[1];
 
-  // spTree 내의 모든 p:grpSp 블록 추출
-  // 정확한 중첩 처리를 위해, spTree 직하위의 nvGrpSpPr 이후 그룹들만 수집
-  const regex = /<p:grpSp\b[\s\S]*?<\/p:grpSp>/g;
-  let match;
-  while ((match = regex.exec(spTreeContent))) {
-    groups.push(match[0]);
+  // spTree 직하위(최상위) grpSp 만 추출 — 중첩 깊이를 추적해 top-level 만 잡는다.
+  // (비탐욕 정규식은 중첩 그룹을 잘못 쪼갠다: 배지 같은 내부 그룹이 별도 top-level 로 떨어져 나오고
+  //  최상위 그룹 bbox 도 망가진다. 깊이 카운팅으로 정확히 최상위 경계만 잡는다.)
+  const tokenRe = /<p:grpSp\b[^>]*>|<\/p:grpSp>/g;
+  let depth = 0;
+  let startIdx = -1;
+  let token;
+  while ((token = tokenRe.exec(spTreeContent))) {
+    const isClose = token[0].startsWith('</');
+    if (!isClose) {
+      if (depth === 0) startIdx = token.index;
+      depth += 1;
+    } else {
+      depth -= 1;
+      if (depth === 0 && startIdx >= 0) {
+        groups.push(spTreeContent.slice(startIdx, token.index + token[0].length));
+        startIdx = -1;
+      }
+    }
   }
 
   return groups;
@@ -141,6 +154,10 @@ export function parseGroupBoxes(slideXml, slideSizeEmu) {
 
   const boxes = [];
   for (const grpBlock of groups) {
+    // 그림(<p:pic>)이 없는 최상위 그룹은 순수 주석 묶음(배지 클러스터 등) → 스킵
+    const picCount = (grpBlock.match(/<p:pic\b/g) || []).length;
+    if (picCount === 0) continue;
+
     const xfrm = extractGroupTransform(grpBlock);
     if (!xfrm) continue;
 
