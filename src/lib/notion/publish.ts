@@ -1,6 +1,6 @@
 import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
-import { cropRender, loadRender, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
+import { cropRender, loadAsset, loadRender, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
 
 const NOTION_VERSION = '2022-06-28';
 const MAX_CHILDREN_PER_REQUEST = 100;
@@ -47,6 +47,7 @@ interface AssetRow {
   slide_id: string;
   label: string;
   crop_box: PercentBox | null;
+  storage_path: string | null;
   review_status: string;
 }
 
@@ -242,7 +243,7 @@ async function fetchPublishData(taskId: string): Promise<FetchResult> {
   if (slideIds.length) {
     const { data: assets } = await supabase
       .from('manual_assets')
-      .select('id,slide_id,label,crop_box,review_status')
+      .select('id,slide_id,label,crop_box,storage_path,review_status')
       .in('slide_id', slideIds)
       .neq('review_status', 'excluded')
       .order('created_at');
@@ -412,13 +413,21 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
             children.push(...renderContentBlock(block.content));
           }
           const assets = data.assetsBySlide.get(slide.id) ?? [];
-          if (assets.length && slide.render_path) {
-            const renderBuffer = await loadRender(slide.render_path);
+          if (assets.length) {
+            let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
             for (const asset of assets) {
-              if (!asset.crop_box) continue;
-              const cropped = await cropRender(renderBuffer, asset.crop_box);
-              await storeCroppedAsset(taskId, asset.id, cropped);
-              const fileUploadId = await uploadImageToNotion(token, cropped, `${asset.id}.png`);
+              let buffer: Buffer | null = null;
+              if (asset.storage_path) {
+                // group_bake: 이미 구워진 이미지를 그대로 노션에 올린다
+                buffer = await loadAsset(asset.storage_path);
+              } else if (asset.crop_box && slide.render_path) {
+                // capture: 렌더에서 crop 후 업로드
+                if (!renderBuffer) renderBuffer = await loadRender(slide.render_path);
+                buffer = await cropRender(renderBuffer, asset.crop_box);
+                await storeCroppedAsset(taskId, asset.id, buffer);
+              }
+              if (!buffer) continue;
+              const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
               children.push(imageBlock(fileUploadId));
               imageCount += 1;
             }

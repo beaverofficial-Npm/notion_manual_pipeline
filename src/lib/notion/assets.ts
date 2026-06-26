@@ -55,6 +55,14 @@ export async function loadRender(renderPath: string): Promise<Buffer> {
   return Buffer.from(await data.arrayBuffer());
 }
 
+// group_bake 등 이미 manual-assets 버킷에 저장된 이미지를 그대로 불러온다.
+export async function loadAsset(storagePath: string): Promise<Buffer> {
+  const supabase = createServiceSupabaseClient();
+  const { data, error } = await supabase.storage.from(ASSET_BUCKET).download(storagePath);
+  if (error || !data) throw new Error(error?.message ?? `에셋 이미지를 불러오지 못했습니다: ${storagePath}`);
+  return Buffer.from(await data.arrayBuffer());
+}
+
 // 잘린 이미지를 manual-assets 버킷에 저장하고 storage_path 를 반환한다.
 export async function storeCroppedAsset(taskId: string, assetId: string, buffer: Buffer): Promise<string> {
   const supabase = createServiceSupabaseClient();
