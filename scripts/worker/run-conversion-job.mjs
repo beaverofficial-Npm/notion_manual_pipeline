@@ -12,6 +12,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
+import { parseGroupBoxes, cropGroups } from './group-bake.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -22,6 +23,7 @@ const pdfinfo = process.env.PDFINFO_BIN ?? 'pdfinfo';
 const SOURCE_BUCKET = 'manual-source';
 const RENDER_BUCKET = 'manual-renders';
 const MANIFEST_BUCKET = 'manual-manifests';
+const ASSETS_BUCKET = 'manual-assets';
 
 async function loadLocalEnv() {
   try {
@@ -304,6 +306,15 @@ export async function runOnce(jobIdArg) {
       .single();
     if (sourceError || !sourceFile) throw new Error(sourceError?.message ?? 'Source file not found.');
 
+    // task의 conversion_mode 조회 (기본값: 'capture')
+    const { data: task, error: taskError } = await supabase
+      .from('manual_tasks')
+      .select('conversion_mode')
+      .eq('id', sourceFile.task_id)
+      .single();
+    if (taskError || !task) throw new Error(taskError?.message ?? 'Task not found.');
+    const conversionMode = task.conversion_mode ?? 'capture';
+
     const pptPath = await downloadSource(sourceFile, tmpDir);
     const [presentationXml, slideEntries, renderedSlides] = await Promise.all([
       unzipText(pptPath, 'ppt/presentation.xml'),
@@ -317,6 +328,7 @@ export async function runOnce(jobIdArg) {
     };
 
     // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
+    // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 그룹 베이킹)
     const parsedSlides = [];
     for (const entry of slideEntries) {
       const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
@@ -330,6 +342,32 @@ export async function runOnce(jobIdArg) {
         functionName ??
         parsed.shapes.find((s) => !s.isGroupLabel)?.text ??
         `슬라이드 ${slideNumber}`;
+
+      let screenshots = [];
+      if (role === 'content') {
+        if (conversionMode === 'group_bake') {
+          // 그룹 베이크 모드: 그룹 bbox 파싱 → 크롭 → 이미지 에셋으로 저장
+          const groupBoxes = parseGroupBoxes(slideXml, slideSize);
+          if (groupBoxes.length > 0) {
+            const localRender = renderedSlides[slideNumber - 1];
+            if (localRender) {
+              const croppedPaths = await cropGroups(localRender, groupBoxes, tmpDir, slideNumber);
+              // 각 크롭된 그룹을 screenshot 객체로 변환
+              // (uploadFile 시 자동으로 저장되며, 파일명이 곧 식별자)
+              screenshots = croppedPaths.map((croppedPath, index) => ({
+                label: `Group ${index + 1}`,
+                bbox: null, // 그룹 베이크는 전체 크롭 이미지이므로 bbox 불필요
+                confidence: 0.95,
+                imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
+              }));
+            }
+          }
+        } else {
+          // capture 모드 (기본): 기존 동작 유지
+          screenshots = screenshotCandidates(parsed);
+        }
+      }
+
       parsedSlides.push({
         slide_number: slideNumber,
         role,
@@ -337,7 +375,7 @@ export async function runOnce(jobIdArg) {
         functionName,
         title,
         blocks: role === 'content' ? buildFunctionBlocks(parsed, functionName) : [],
-        screenshots: role === 'content' ? screenshotCandidates(parsed) : [],
+        screenshots,
         localRender: renderedSlides[slideNumber - 1] ?? null,
       });
     }
@@ -421,21 +459,32 @@ export async function runOnce(jobIdArg) {
           }
 
           if (slide.screenshots.length) {
-            const { error: assetError } = await supabase.from('manual_assets').insert(
-              slide.screenshots.slice(0, 4).map((shot) => ({
+            // group_bake 모드: imagePath를 가진 이미지는 버킷에 업로드하고 storage_path 설정
+            // capture 모드: 기존 동작 (crop_box 저장, storage_path=null)
+            const assetRows = [];
+            for (const shot of slide.screenshots.slice(0, 4)) {
+              let storagePath = null;
+              if (conversionMode === 'group_bake' && shot.imagePath) {
+                // group_bake: 크롭된 이미지를 manual-assets 버킷에 업로드
+                const assetFileName = path.basename(shot.imagePath);
+                storagePath = `${job.task_id}/runs/${job.run_number}/assets/${assetFileName}`;
+                await uploadFile(ASSETS_BUCKET, storagePath, shot.imagePath, 'image/png');
+              }
+              assetRows.push({
                 slide_id: slideId,
                 job_id: job.id,
-                kind: 'screenshot',
+                kind: conversionMode === 'group_bake' ? 'group_bake' : 'screenshot',
                 label: shot.label,
-                storage_path: null,
-                crop_box: shot.bbox,
+                storage_path: storagePath,
+                crop_box: conversionMode === 'group_bake' ? null : shot.bbox,
                 source_element_ids: [],
                 included_annotation_ids: [],
                 review_status: 'pending',
-                review_reason: 'extracted_candidate',
+                review_reason: conversionMode === 'group_bake' ? 'group_bake_auto' : 'extracted_candidate',
                 confidence: shot.confidence,
-              })),
-            );
+              });
+            }
+            const { error: assetError } = await supabase.from('manual_assets').insert(assetRows);
             if (assetError) throw new Error(assetError.message);
           }
         }

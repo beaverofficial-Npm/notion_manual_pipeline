@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     const file = formData.get('file');
     const titleValue = formData.get('title');
     const notionTargetValue = formData.get('notionTarget');
+    const modeValue = formData.get('mode');
 
     if (!(file instanceof File)) {
       return NextResponse.json({ message: 'PPT 파일이 필요합니다.' }, { status: 400 });
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
 
     const title = typeof titleValue === 'string' && titleValue.trim() ? titleValue.trim() : fileNameToTitle(file.name);
     const notionTarget = typeof notionTargetValue === 'string' ? notionTargetValue.trim() : '';
+    // mode 검증: 'capture' 또는 'group_bake', 미지정 시 기본값 'capture'
+    const mode = typeof modeValue === 'string' && modeValue.trim() ? modeValue.trim() : 'capture';
+    if (!['capture', 'group_bake'].includes(mode)) {
+      return NextResponse.json({ message: 'mode은 capture 또는 group_bake이어야 합니다.' }, { status: 400 });
+    }
 
     const { data: task, error: taskError } = await supabase
       .from('manual_tasks')
@@ -56,6 +62,7 @@ export async function POST(request: Request) {
         status: 'ready',
         target_notion_page_id: notionTarget || null,
         publish_mode: 'create_child',
+        conversion_mode: mode,
       })
       .select('id')
       .single();

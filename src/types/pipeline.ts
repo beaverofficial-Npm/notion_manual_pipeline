@@ -8,7 +8,7 @@ export type PipelineStatus =
   | 'published'
   | 'failed';
 
-export type AssetKind = 'screenshot' | 'qr' | 'table_image' | 'annotation' | 'decorative' | 'unknown';
+export type AssetKind = 'screenshot' | 'qr' | 'table_image' | 'annotation' | 'decorative' | 'unknown' | 'group_bake';
 
 export interface ManualAsset {
   id: string;
