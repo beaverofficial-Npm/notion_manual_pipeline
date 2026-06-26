@@ -915,8 +915,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
                     />
                     <div>
-                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>자동 추출</span>
-                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>슬라이드에서 이미지 영역을 자동 감지해 잘라냄</span>
+                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>캡쳐 모드</span>
+                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>슬라이드를 렌더해 이미지 영역을 잘라냄(크롭 수정 필요)</span>
                     </div>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: ps.sm, cursor: selectedFile ? 'pointer' : 'default' }}>
@@ -930,8 +930,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
                     />
                     <div>
-                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>그룹 이미지</span>
-                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>PPT에서 그룹으로 묶은 요소(화살표·주석 포함)를 한 장으로</span>
+                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>자동 추출</span>
+                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>PPT에서 그룹으로 묶은 요소(화살표·주석 포함)를 한 장으로 (크롭 수정 없이 검토만)</span>
                     </div>
                   </label>
                 </div>
