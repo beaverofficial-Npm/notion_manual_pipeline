@@ -638,34 +638,47 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
   // 함수 포함/제외 상태 (함수 ID → boolean)
   const [functionIncluded, setFunctionIncluded] = useState<Record<string, boolean>>({});
 
-  // tree 로드
+  // tree 로드 — 변환 중이면 완료될 때까지 자동 폴링(부분 데이터/수동 새로고침 방지)
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
     async function loadTree() {
       try {
-        setLoading(true);
-        const res = await fetch(`/api/tasks/${taskId}/tree`);
+        const res = await fetch(`/api/tasks/${taskId}/tree`, { cache: 'no-store' });
         if (!res.ok) throw new Error('트리를 불러오지 못했습니다.');
         const data = (await res.json()) as TreeResponse;
+        if (cancelled) return;
         setTree(data.tree);
         setTaskTitle(data.task.title);
-        // 초기 선택: 첫 번째 함수
+        // 첫 함수 선택(이미 선택돼 있으면 폴링 중 바꾸지 않음)
         const firstFn = data.tree[0]?.functions[0];
-        if (firstFn) setSelectedFunctionId(firstFn.id);
-        // 초기 포함 상태: 모두 포함
-        const included: Record<string, boolean> = {};
-        data.tree.forEach((cat) => {
-          cat.functions.forEach((fn) => {
-            included[fn.id] = fn.review_status !== 'excluded';
+        setSelectedFunctionId((prev) => (prev ? prev : (firstFn?.id ?? prev)));
+        // 포함 상태는 첫 로드에만 초기화(폴링 중 사용자 토글 보존)
+        setFunctionIncluded((prev) => {
+          if (Object.keys(prev).length > 0) return prev;
+          const included: Record<string, boolean> = {};
+          data.tree.forEach((cat) => {
+            cat.functions.forEach((fn) => {
+              included[fn.id] = fn.review_status !== 'excluded';
+            });
           });
+          return included;
         });
-        setFunctionIncluded(included);
+        // 아직 변환 중(running/ready/draft)이면 3초 후 다시 로드해 채운다
+        if (['running', 'ready', 'draft'].includes(data.task.status)) {
+          timer = setTimeout(loadTree, 3000);
+        }
       } catch (err) {
-        setError(err instanceof Error ? err.message : '알 수 없는 오류');
+        if (!cancelled) setError(err instanceof Error ? err.message : '알 수 없는 오류');
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     loadTree();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [taskId]);
 
   // 현재 선택된 함수 + 그 함수가 속한 카테고리(heading_1 표시용)
