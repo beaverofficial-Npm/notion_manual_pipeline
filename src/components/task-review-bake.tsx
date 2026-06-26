@@ -1,7 +1,7 @@
 'use client';
 
 import { Button, Card, Input, Modal, message, dialog, primitiveRadius, primitiveSpacing, semanticColors, semanticTypography } from '@sungbinhwang-beaverworksinc/design-system';
-import { ArrowLeft, ChevronRight, Eye, Loader, Send } from 'lucide-react';
+import { ArrowLeft, Eye, Loader, Send } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 
@@ -31,10 +31,28 @@ interface Asset {
   review_status?: string;
 }
 
+// 노션 블록 content 실제 형태 (tree API → manual_notion_blocks.content JSONB)
+//   { kind, text?, children?, rows? }
+//   numbered_list 의 children 은 { kind:'callout'|'paragraph'|'bulleted', text } 배열,
+//   table 은 rows: string[][] (첫 행 = 헤더). 데이터는 content.* 에만 있음(top-level 아님).
+type BlockChildKind = 'callout' | 'paragraph' | 'bulleted';
+
+interface BlockChild {
+  kind: BlockChildKind;
+  text: string;
+}
+
+interface BlockContent {
+  kind: string;
+  text?: string;
+  children?: BlockChild[];
+  rows?: string[][];
+}
+
 interface Block {
   id: string;
   kind: string;
-  content: unknown;
+  content: BlockContent;
 }
 
 interface Function {
@@ -81,7 +99,7 @@ interface PreviewFunction {
 interface PreviewBlock {
   kind: string;
   text?: string;
-  children?: PreviewBlock[];
+  children?: BlockChild[];
   rows?: string[][];
 }
 
@@ -251,67 +269,6 @@ const styles: Record<string, CSSProperties> = {
     overflowX: 'hidden',
     padding: ps.md,
   },
-  slideItem: {
-    display: 'grid',
-    gap: ps.md,
-    marginBottom: ps.lg,
-    paddingBottom: ps.lg,
-    borderBottom: `1px solid ${sc.border.default}`,
-  },
-  slideHeader: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: ps.sm,
-  },
-  slideTitle: {
-    fontSize: st.fontSizeHeading5,
-    fontWeight: st.fontWeightStrong,
-    color: sc.text.heading,
-    margin: 0,
-  },
-  slideNumber: {
-    fontSize: st.fontSizeSM,
-    color: sc.text.secondary,
-    fontWeight: st.fontWeightMedium,
-  },
-  assetImage: {
-    width: '100%',
-    borderRadius: pr.lg,
-    border: `1px solid ${sc.border.default}`,
-    backgroundColor: sc.bg.elevated,
-  },
-  assetImageContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 200,
-    borderRadius: pr.lg,
-    border: `1px solid ${sc.border.default}`,
-    backgroundColor: sc.bg.elevated,
-  },
-  includeToggle: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: ps.xs,
-    padding: `${ps.xs}px ${ps.sm}px`,
-    borderRadius: pr.base,
-    border: `1px solid ${sc.border.default}`,
-    background: sc.bg.elevated,
-    cursor: 'pointer',
-  },
-  blocksList: {
-    display: 'grid',
-    gap: ps.sm,
-  },
-  blockItem: {
-    padding: ps.sm,
-    background: sc.bg.elevated,
-    border: `1px solid ${sc.border.default}`,
-    borderRadius: pr.base,
-    fontSize: st.fontSizeSM,
-    color: sc.text.primary,
-  },
   emptyState: {
     display: 'flex',
     flexDirection: 'column',
@@ -326,28 +283,340 @@ const styles: Record<string, CSSProperties> = {
     background: sc.border.default,
     margin: `${ps.lg}px 0`,
   },
+  // ── 노션 실제 렌더 미리보기 ──────────────────────────────
+  notionDoc: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: ps.xs,
+  },
+  // 카테고리 = heading_1 (이모지 + 굵은 큰 제목)
+  categoryHeading: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: ps.xs,
+    margin: `${ps.sm}px 0 ${ps.xs}px`,
+    color: sc.text.heading,
+    fontSize: st.fontSizeHeading2,
+    fontWeight: st.fontWeightBold,
+    lineHeight: st.lineHeightHeading2,
+  },
+  categoryHeadingEmoji: {
+    fontSize: st.fontSizeHeading2,
+    lineHeight: 1,
+  },
+  // 기능 = heading_2 (진한 네이비 배경 바 + 흰 텍스트)
+  functionHeadingBar: {
+    display: 'flex',
+    alignItems: 'center',
+    padding: `${ps.sm}px ${ps.base}px`,
+    margin: `${ps.sm}px 0 ${ps.base}px`,
+    background: sc.primary.dark4,
+    borderRadius: pr.xl,
+    color: sc.text.lightSolid,
+    fontSize: st.fontSizeHeading4,
+    fontWeight: st.fontWeightStrong,
+    lineHeight: st.lineHeightHeading4,
+  },
+  // 소제목 = heading (heading_3 느낌)
+  blockHeading: {
+    margin: `${ps.sm}px 0 ${ps.xxs}px`,
+    color: sc.text.heading,
+    fontSize: st.fontSizeHeading5,
+    fontWeight: st.fontWeightStrong,
+    lineHeight: st.lineHeightHeading5,
+  },
+  // 문단
+  paragraph: {
+    margin: 0,
+    color: sc.text.primary,
+    fontSize: st.fontSize,
+    lineHeight: st.lineHeight,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  // 목록 행 (번호/불릿 공통)
+  listRow: {
+    display: 'flex',
+    gap: ps.xs,
+    alignItems: 'baseline',
+    color: sc.text.primary,
+    fontSize: st.fontSize,
+    lineHeight: st.lineHeight,
+  },
+  listMarker: {
+    flexShrink: 0,
+    minWidth: 20,
+    color: sc.text.secondary,
+    fontWeight: st.fontWeightMedium,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  bulletMarker: {
+    flexShrink: 0,
+    width: 16,
+    textAlign: 'center',
+    color: sc.text.secondary,
+  },
+  listText: {
+    flex: 1,
+    minWidth: 0,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  // 하위 항목 들여쓰기 컨테이너
+  childIndent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: ps.xxs,
+    paddingLeft: ps.lg,
+    marginTop: ps.xxs,
+  },
+  // 콜아웃 박스
+  callout: {
+    display: 'flex',
+    gap: ps.xs,
+    padding: `${ps.sm}px ${ps.base}px`,
+    background: sc.warning.bg,
+    border: `1px solid ${sc.warning.border}`,
+    borderRadius: pr.xl,
+    color: sc.text.primary,
+    fontSize: st.fontSize,
+    lineHeight: st.lineHeight,
+  },
+  calloutIcon: {
+    flexShrink: 0,
+    fontSize: st.fontSize,
+    lineHeight: st.lineHeight,
+  },
+  calloutText: {
+    flex: 1,
+    minWidth: 0,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  // 표
+  tableWrap: {
+    width: '100%',
+    overflowX: 'auto',
+    border: `1px solid ${sc.border.default}`,
+    borderRadius: pr.xl,
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: st.fontSizeSM,
+    lineHeight: st.lineHeightSM,
+  },
+  tableHeaderCell: {
+    padding: `${ps.xs}px ${ps.sm}px`,
+    background: sc.bg.elevated,
+    borderBottom: `1px solid ${sc.border.default}`,
+    borderRight: `1px solid ${sc.border.secondary}`,
+    color: sc.text.heading,
+    fontWeight: st.fontWeightStrong,
+    textAlign: 'left',
+    verticalAlign: 'top',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  tableCell: {
+    padding: `${ps.xs}px ${ps.sm}px`,
+    borderBottom: `1px solid ${sc.border.secondary}`,
+    borderRight: `1px solid ${sc.border.secondary}`,
+    color: sc.text.primary,
+    verticalAlign: 'top',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  },
+  // 베이크 이미지 (인라인 풀폭)
+  bakeImage: {
+    display: 'block',
+    width: '100%',
+    height: 'auto',
+    borderRadius: pr.xl,
+    border: `1px solid ${sc.border.default}`,
+    background: sc.bg.elevated,
+  },
 };
 
-function renderBlockText(block: PreviewBlock): string {
-  if (block.text) return block.text;
-  if (block.kind === 'table' && block.rows) {
-    return `[표 ${block.rows.length}행]`;
-  }
-  return '';
+// 표 렌더 (첫 행 = 헤더). 빈 셀/빈 행은 그대로 두되, 폭은 최대 열 수로 맞춘다.
+function NotionTable({ rows }: { rows: string[][] }) {
+  const cleaned = rows.filter((row) => row.length > 0);
+  if (!cleaned.length) return null;
+  const width = Math.max(...cleaned.map((row) => row.length));
+  const [headerRow, ...bodyRows] = cleaned;
+  return (
+    <div style={styles.tableWrap}>
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            {Array.from({ length: width }, (_, col) => (
+              <th key={col} style={styles.tableHeaderCell}>
+                {headerRow[col] ?? ''}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {bodyRows.map((row, rowIdx) => (
+            <tr key={rowIdx}>
+              {Array.from({ length: width }, (_, col) => (
+                <td key={col} style={styles.tableCell}>
+                  {row[col] ?? ''}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
-function BlockPreview({ blocks }: { blocks: PreviewBlock[] }) {
-  if (!blocks.length) return null;
-  return (
-    <div style={styles.blocksList}>
-      {blocks.map((block, idx) => (
-        <div key={idx} style={styles.blockItem}>
-          <div style={{ fontWeight: st.fontWeightMedium, marginBottom: ps.xs }}>
-            {block.kind === 'numbered_list' ? '번호 목록' : block.kind === 'bulleted_list' ? '글머리 목록' : block.kind === 'callout' ? '주의' : block.kind === 'table' ? '표' : '단락'}
+// 하위 항목(numbered_list children): kind 별로 콜아웃/불릿/문단 렌더, 들여쓰기.
+function NotionChild({ child }: { child: BlockChild }) {
+  if (child.kind === 'callout') {
+    return (
+      <div style={styles.callout}>
+        <span style={styles.calloutIcon}>⚠️</span>
+        <span style={styles.calloutText}>{child.text}</span>
+      </div>
+    );
+  }
+  if (child.kind === 'bulleted') {
+    return (
+      <div style={styles.listRow}>
+        <span style={styles.bulletMarker}>•</span>
+        <span style={styles.listText}>{child.text}</span>
+      </div>
+    );
+  }
+  return <p style={styles.paragraph}>{child.text}</p>;
+}
+
+// 단일 노션 블록을 "발행됐을 때 실제 모습"으로 렌더한다.
+// 데이터는 content.text / content.children / content.rows 에 있다(top-level 아님).
+function NotionBlockView({ content, index }: { content: BlockContent; index: number }) {
+  const kind = content.kind;
+  const text = content.text ?? '';
+
+  switch (kind) {
+    case 'heading':
+      return <div style={styles.blockHeading}>{text}</div>;
+    case 'numbered_list': {
+      const children = content.children ?? [];
+      return (
+        <div>
+          <div style={styles.listRow}>
+            <span style={styles.listMarker}>{index + 1}.</span>
+            <span style={styles.listText}>{text}</span>
           </div>
-          <div>{renderBlockText(block)}</div>
+          {children.length > 0 && (
+            <div style={styles.childIndent}>
+              {children.map((child, childIdx) => (
+                <NotionChild key={childIdx} child={child} />
+              ))}
+            </div>
+          )}
         </div>
-      ))}
+      );
+    }
+    case 'bulleted_list':
+      return (
+        <div style={styles.listRow}>
+          <span style={styles.bulletMarker}>•</span>
+          <span style={styles.listText}>{text}</span>
+        </div>
+      );
+    case 'callout':
+      return (
+        <div style={styles.callout}>
+          <span style={styles.calloutIcon}>⚠️</span>
+          <span style={styles.calloutText}>{text}</span>
+        </div>
+      );
+    case 'table':
+      return <NotionTable rows={content.rows ?? []} />;
+    case 'paragraph':
+    default:
+      return text ? <p style={styles.paragraph}>{text}</p> : null;
+  }
+}
+
+// numbered_list 는 연속될 때 1,2,3… 로 번호를 매긴다(노션과 동일).
+// 그 외 kind 가 끼면 카운터를 리셋해 목록 그룹을 분리한다.
+function NotionBlocks({ blocks }: { blocks: Block[] }) {
+  if (!blocks.length) return null;
+  let numberedIndex = 0;
+  return (
+    <div style={styles.notionDoc}>
+      {blocks.map((block) => {
+        const content = block.content;
+        const isNumbered = content?.kind === 'numbered_list';
+        const index = isNumbered ? numberedIndex : 0;
+        numberedIndex = isNumbered ? numberedIndex + 1 : 0;
+        return <NotionBlockView key={block.id} content={content} index={index} />;
+      })}
+    </div>
+  );
+}
+
+// ── 발행 미리보기 모달(PreviewBlock 형태)용 렌더 ───────────────
+function PreviewChild({ child }: { child: BlockChild }) {
+  return <NotionChild child={child} />;
+}
+
+function PreviewBlock_({ blocks }: { blocks: PreviewBlock[] }) {
+  if (!blocks.length) return null;
+  let numberedIndex = 0;
+  return (
+    <div style={styles.notionDoc}>
+      {blocks.map((block, idx) => {
+        const isNumbered = block.kind === 'numbered_list';
+        const index = isNumbered ? numberedIndex : 0;
+        numberedIndex = isNumbered ? numberedIndex + 1 : 0;
+
+        if (block.kind === 'table') {
+          return <NotionTable key={idx} rows={block.rows ?? []} />;
+        }
+        if (block.kind === 'callout') {
+          return (
+            <div key={idx} style={styles.callout}>
+              <span style={styles.calloutIcon}>⚠️</span>
+              <span style={styles.calloutText}>{block.text ?? ''}</span>
+            </div>
+          );
+        }
+        if (block.kind === 'bulleted_list') {
+          return (
+            <div key={idx} style={styles.listRow}>
+              <span style={styles.bulletMarker}>•</span>
+              <span style={styles.listText}>{block.text ?? ''}</span>
+            </div>
+          );
+        }
+        if (block.kind === 'heading') {
+          return <div key={idx} style={styles.blockHeading}>{block.text ?? ''}</div>;
+        }
+        if (block.kind === 'numbered_list') {
+          const children = block.children ?? [];
+          return (
+            <div key={idx}>
+              <div style={styles.listRow}>
+                <span style={styles.listMarker}>{index + 1}.</span>
+                <span style={styles.listText}>{block.text ?? ''}</span>
+              </div>
+              {children.length > 0 && (
+                <div style={styles.childIndent}>
+                  {children.map((child, childIdx) => (
+                    <PreviewChild key={childIdx} child={child} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
+        return block.text ? <p key={idx} style={styles.paragraph}>{block.text}</p> : null;
+      })}
     </div>
   );
 }
@@ -399,10 +668,9 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
     loadTree();
   }, [taskId]);
 
-  // 현재 선택된 함수
-  const selectedFunction = tree
-    .flatMap((cat) => cat.functions)
-    .find((fn) => fn.id === selectedFunctionId);
+  // 현재 선택된 함수 + 그 함수가 속한 카테고리(heading_1 표시용)
+  const selectedCategory = tree.find((cat) => cat.functions.some((fn) => fn.id === selectedFunctionId));
+  const selectedFunction = selectedCategory?.functions.find((fn) => fn.id === selectedFunctionId);
 
   // 미리보기 로드
   async function loadPreview() {
@@ -564,46 +832,38 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
           </div>
           <div style={styles.contentPanelBody}>
             {selectedFunction ? (
-              <div>
-                {selectedFunction.slides.map((slide, slideIdx) => (
-                  <div key={slide.id} style={styles.slideItem}>
-                    {/* Slide header: 번호 + 제목 + 포함/제외 */}
-                    <div style={styles.slideHeader}>
-                      <div>
-                        <h3 style={styles.slideTitle}>{slide.title || `슬라이드 ${slide.slide_number}`}</h3>
-                        <div style={styles.slideNumber}>슬라이드 {slide.slide_number}</div>
-                      </div>
-                      <button
-                        style={styles.includeToggle}
-                        onClick={() => {
-                          // TODO: 슬라이드 포함/제외 토글
-                        }}
-                      >
-                        <Eye size={14} />
-                        {/* {included ? '포함' : '제외'} */}
-                      </button>
-                    </div>
+              // 노션에 발행됐을 때 실제로 보이는 모습:
+              // 카테고리(heading_1) → 기능(heading_2 네이비 바) → 슬라이드별 본문 블록 + 베이크 이미지.
+              <div style={styles.notionDoc}>
+                {/* 카테고리 = heading_1 (이모지 + 굵은 큰 제목) */}
+                {selectedCategory && (
+                  <div style={styles.categoryHeading}>
+                    <span style={styles.categoryHeadingEmoji}>📕</span>
+                    <span>{selectedCategory.title}</span>
+                  </div>
+                )}
 
-                    {/* group_bake 에셋 표시 */}
-                    {slide.assets
-                      .filter((asset) => asset.kind === 'group_bake' && asset.signed_url)
-                      .map((asset) => (
-                        <div key={asset.id}>
-                          <img src={asset.signed_url || ''} alt={asset.label} style={styles.assetImage} />
-                        </div>
+                {/* 기능 = heading_2 (진한 네이비 배경 바 + 흰 텍스트) */}
+                <div style={styles.functionHeadingBar}>{selectedFunction.title}</div>
+
+                {selectedFunction.slides.map((slide, slideIdx) => {
+                  const bakeAssets = slide.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url);
+                  const isLastSlide = slideIdx === selectedFunction.slides.length - 1;
+                  return (
+                    <div key={slide.id} style={styles.notionDoc}>
+                      {/* 본문 블록(발행 순서: 블록 먼저) */}
+                      {slide.blocks.length > 0 && <NotionBlocks blocks={slide.blocks} />}
+
+                      {/* 베이크 이미지: signed_url 을 인라인 풀폭 이미지로 */}
+                      {bakeAssets.map((asset) => (
+                        <img key={asset.id} src={asset.signed_url || ''} alt={asset.label} style={styles.bakeImage} />
                       ))}
 
-                    {/* 텍스트 블록 표시 */}
-                    {slide.blocks.length > 0 && (
-                      <div>
-                        <div style={{ fontSize: st.fontSizeSM, fontWeight: st.fontWeightMedium, marginBottom: ps.sm, color: sc.text.secondary }}>
-                          노션 본문
-                        </div>
-                        {/* TODO: 블록 렌더 */}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      {/* 슬라이드(페이지) 사이 divider */}
+                      {!isLastSlide && <div style={styles.divider} />}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div style={styles.emptyState}>좌측에서 기능을 선택하세요.</div>
@@ -686,7 +946,7 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                     <h1 style={{ fontSize: st.fontSizeHeading3, fontWeight: st.fontWeightStrong, color: sc.text.heading, marginTop: 0, marginBottom: ps.lg }}>
                       {page.title}
                     </h1>
-                    {page.blocks.length > 0 && <BlockPreview blocks={page.blocks} />}
+                    {page.blocks.length > 0 && <PreviewBlock_ blocks={page.blocks} />}
                     {page.images.length > 0 && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: ps.md, marginTop: ps.lg }}>
                         {page.images.map((img, idx) => (
