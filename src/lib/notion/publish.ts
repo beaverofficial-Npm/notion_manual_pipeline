@@ -72,7 +72,7 @@ function requireNotionToken() {
   return token;
 }
 
-export function extractNotionPageId(value: string | null | undefined) {
+export function extractNotionPageId(value: string | null | undefined): string {
   if (!value) return '';
   const compact = value.trim().replace(/-/g, '');
   const match = compact.match(/[0-9a-fA-F]{32}/);

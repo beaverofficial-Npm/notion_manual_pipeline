@@ -462,7 +462,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState(initialProjects);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [notionTarget, setNotionTarget] = useState('');
   const [conversionMode, setConversionMode] = useState<'capture' | 'group_bake'>('capture');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState('');
@@ -472,6 +471,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [deletingTaskId, setDeletingTaskId] = useState('');
   const [cancellingTaskId, setCancellingTaskId] = useState('');
   const [editingTitleId, setEditingTitleId] = useState('');
+  const [publishModalOpen, setPublishModalOpen] = useState<string | null>(null);
+  const [publishNotionTarget, setPublishNotionTarget] = useState('');
   const [convWatch, setConvWatch] = useState<{ taskId: string; title: string } | null>(null);
   const [convStatus, setConvStatus] = useState<{ taskStatus: string | null; jobStatus: string | null; jobError: string | null; slideCount: number } | null>(null);
   const [editTitleValue, setEditTitleValue] = useState('');
@@ -587,7 +588,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
     const formData = new FormData();
     formData.append('file', selectedFile);
-    formData.append('notionTarget', notionTarget);
     formData.append('mode', conversionMode);
 
     try {
@@ -619,7 +619,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
         current.map((project) => (project.id === createdProject.id ? (runResult.project as ManualProject) : project)),
       );
       setSelectedFile(null);
-      setNotionTarget('');
       message.success('변환을 시작했습니다.');
       // 변환 진행 모달 열기(상태 폴링)
       setConvStatus({ taskStatus: 'running', jobStatus: 'queued', jobError: null, slideCount: 0 });
@@ -751,13 +750,25 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   async function handlePublishTask(taskId: string) {
     if (publishingTaskId) return;
 
+    // 발행 대상 입력 모달 열기
+    setPublishModalOpen(taskId);
+    setPublishNotionTarget('');
+  }
+
+  async function handleConfirmPublish(taskId: string) {
+    if (publishingTaskId || !publishNotionTarget.trim()) return;
+
     setPublishingTaskId(taskId);
     setProgressClock(0);
     setFeedback(null);
 
     try {
       // 발행은 NDJSON 스트림으로 진행 상황을 보낸다. 마지막 done 이벤트의 결과를 사용한다.
-      const response = await fetch(`/api/tasks/${taskId}/publish`, { method: 'POST' });
+      const response = await fetch(`/api/tasks/${taskId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notionTarget: publishNotionTarget }),
+      });
       if (!response.ok || !response.body) throw new Error('Notion 발행에 실패했습니다.');
 
       const reader = response.body.getReader();
@@ -786,6 +797,13 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
       if (errorMsg) throw new Error(errorMsg);
       if (!finalResult) throw new Error('Notion 발행에 실패했습니다.');
 
+      // 프로젝트 목록 새로고침
+      const listResponse = await fetch('/api/tasks');
+      const listResult = (await listResponse.json()) as { projects?: ManualProject[] };
+      if (listResponse.ok && listResult.projects) {
+        setProjects(listResult.projects);
+      }
+
       setFeedback({
         type: 'success',
         message: finalResult.url ? `Notion 페이지가 생성되었습니다: ${finalResult.url}` : 'Notion 페이지가 생성되었습니다.',
@@ -797,6 +815,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
       message.error(text);
     } finally {
       setPublishingTaskId('');
+      setPublishModalOpen(null);
+      setPublishNotionTarget('');
     }
   }
 
@@ -883,8 +903,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             <div style={styles.newTaskControls}>
               <label style={{ ...styles.field, opacity: selectedFile ? 1 : 0.5 }}>
                 변환 방식
-                <div style={{ display: 'flex', gap: ps.md, marginTop: ps.xs }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: ps.xs, cursor: selectedFile ? 'pointer' : 'default' }}>
+                <div style={{ display: 'flex', gap: ps.md, marginTop: ps.xs, flexDirection: 'column' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: ps.sm, cursor: selectedFile ? 'pointer' : 'default' }}>
                     <input
                       type="radio"
                       name="conversion_mode"
@@ -892,11 +912,14 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       checked={conversionMode === 'capture'}
                       disabled={!selectedFile}
                       onChange={() => setConversionMode('capture')}
-                      style={{ cursor: selectedFile ? 'pointer' : 'default' }}
+                      style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
                     />
-                    <span style={{ ...styles.smallText, margin: 0 }}>캡쳐 (기본)</span>
+                    <div>
+                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>자동 추출</span>
+                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>슬라이드에서 이미지 영역을 자동 감지해 잘라냄</span>
+                    </div>
                   </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: ps.xs, cursor: selectedFile ? 'pointer' : 'default' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: ps.sm, cursor: selectedFile ? 'pointer' : 'default' }}>
                     <input
                       type="radio"
                       name="conversion_mode"
@@ -904,28 +927,20 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                       checked={conversionMode === 'group_bake'}
                       disabled={!selectedFile}
                       onChange={() => setConversionMode('group_bake')}
-                      style={{ cursor: selectedFile ? 'pointer' : 'default' }}
+                      style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
                     />
-                    <span style={{ ...styles.smallText, margin: 0 }}>그룹 베이크</span>
+                    <div>
+                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>그룹 이미지</span>
+                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>PPT에서 그룹으로 묶은 요소(화살표·주석 포함)를 한 장으로</span>
+                    </div>
                   </label>
                 </div>
-              </label>
-
-              <label style={{ ...styles.field, opacity: selectedFile ? 1 : 0.5 }}>
-                Notion 대상
-                <input
-                  style={styles.input}
-                  placeholder={selectedFile ? 'Notion 페이지 URL 또는 데이터베이스 ID' : 'PPT를 먼저 업로드하세요'}
-                  value={notionTarget}
-                  disabled={!selectedFile}
-                  onChange={(event) => setNotionTarget(event.target.value)}
-                />
               </label>
 
               <Button
                 variant="primary"
                 block
-                disabled={!selectedFile || !notionTarget.trim() || isSubmitting}
+                disabled={!selectedFile || isSubmitting}
                 loading={isSubmitting}
                 onClick={handleStartConversion}
               >
@@ -1088,6 +1103,52 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
           </div>
         </Card>
       </section>
+
+      {/* 발행 대상 입력 모달 */}
+      <Modal
+        open={!!publishModalOpen}
+        onClose={() => setPublishModalOpen(null)}
+        title="Notion 대상 입력"
+        subtitle="발행할 Notion 페이지의 링크를 입력해 주세요"
+        size="sm"
+        footer={
+          <>
+            <Button variant="default" onClick={() => setPublishModalOpen(null)}>
+              취소
+            </Button>
+            <Button
+              variant="primary"
+              disabled={!publishNotionTarget.trim() || publishingTaskId === publishModalOpen}
+              loading={publishingTaskId === publishModalOpen}
+              onClick={() => publishModalOpen && handleConfirmPublish(publishModalOpen)}
+            >
+              <Send size={14} />
+              발행 시작
+            </Button>
+          </>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: ps.md, padding: ps.md }}>
+          <div style={styles.field}>
+            <label style={{ display: 'block', marginBottom: ps.xs }}>Notion 페이지 URL</label>
+            <input
+              style={styles.input}
+              placeholder="https://www.notion.so/..."
+              value={publishNotionTarget}
+              onChange={(event) => setPublishNotionTarget(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && publishNotionTarget.trim() && publishModalOpen) {
+                  handleConfirmPublish(publishModalOpen);
+                }
+              }}
+              autoFocus
+            />
+            <span style={{ ...styles.smallText, marginTop: ps.xs, display: 'block' }}>
+              Notion 페이지 링크를 복사해서 붙여넣으세요. 예: notion.so/12345abc
+            </span>
+          </div>
+        </div>
+      </Modal>
 
       {/* 변환 진행 모달 */}
       {(() => {

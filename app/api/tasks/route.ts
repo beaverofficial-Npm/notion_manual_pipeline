@@ -36,7 +36,6 @@ export async function POST(request: Request) {
     const formData = await request.formData();
     const file = formData.get('file');
     const titleValue = formData.get('title');
-    const notionTargetValue = formData.get('notionTarget');
     const modeValue = formData.get('mode');
 
     if (!(file instanceof File)) {
@@ -48,7 +47,6 @@ export async function POST(request: Request) {
     }
 
     const title = typeof titleValue === 'string' && titleValue.trim() ? titleValue.trim() : fileNameToTitle(file.name);
-    const notionTarget = typeof notionTargetValue === 'string' ? notionTargetValue.trim() : '';
     // mode 검증: 'capture' 또는 'group_bake', 미지정 시 기본값 'capture'
     const mode = typeof modeValue === 'string' && modeValue.trim() ? modeValue.trim() : 'capture';
     if (!['capture', 'group_bake'].includes(mode)) {
@@ -60,7 +58,7 @@ export async function POST(request: Request) {
       .insert({
         title,
         status: 'ready',
-        target_notion_page_id: notionTarget || null,
+        target_notion_page_id: null,
         publish_mode: 'create_child',
         conversion_mode: mode,
       })

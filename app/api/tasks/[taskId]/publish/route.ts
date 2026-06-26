@@ -1,4 +1,6 @@
 import { publishTaskToNotion } from '@/lib/notion/publish';
+import { extractNotionPageId } from '@/lib/notion/publish';
+import { createServiceSupabaseClient } from '@/lib/supabase/server';
 
 interface RouteContext {
   params: Promise<{
@@ -10,6 +12,40 @@ interface RouteContext {
 // 클라이언트 연결이 끊기면(취소/새로고침) 발행을 중단하고, 닫힌 스트림에 쓰지 않는다.
 export async function POST(request: Request, context: RouteContext) {
   const { taskId } = await context.params;
+  const supabase = createServiceSupabaseClient();
+
+  // 요청 본문에서 Notion 링크 받기
+  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+  const notionLink = typeof body.notionTarget === 'string' ? body.notionTarget.trim() : '';
+
+  // Notion 링크에서 page id 추출
+  const pageId = extractNotionPageId(notionLink);
+  if (!pageId) {
+    return new Response(
+      JSON.stringify({ type: 'error', message: 'Notion 페이지 URL 또는 ID가 올바르지 않습니다. 링크를 다시 확인해 주세요.' }) + '\n',
+      {
+        status: 400,
+        headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' }
+      }
+    );
+  }
+
+  // task에 target_notion_page_id 설정
+  const { error: updateError } = await supabase
+    .from('manual_tasks')
+    .update({ target_notion_page_id: pageId, updated_at: new Date().toISOString() })
+    .eq('id', taskId);
+
+  if (updateError) {
+    return new Response(
+      JSON.stringify({ type: 'error', message: updateError.message }) + '\n',
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' }
+      }
+    );
+  }
+
   const encoder = new TextEncoder();
   const abort = new AbortController();
   request.signal.addEventListener('abort', () => abort.abort());
