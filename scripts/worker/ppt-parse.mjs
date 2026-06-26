@@ -240,7 +240,8 @@ export function buildFunctionBlocks(parsed, functionName) {
       }
 
       if (STEP_RE.test(t)) {
-        currentStep = { kind: 'numbered_list', text: t.replace(STEP_RE, '').trim(), children: [] };
+        const stepNum = t.match(/^\s*(\d{1,2})/);
+        currentStep = { kind: 'numbered_list', number: stepNum ? Number(stepNum[1]) : null, text: t.replace(STEP_RE, '').trim(), children: [] };
         blocks.push(currentStep);
       } else if (TIP_INLINE_RE.test(t) || TIP_WORD_RE.test(t)) {
         pushChildOrTop({ kind: 'callout', text: t.replace(/^\s*[*※]\s*/, '').trim() });

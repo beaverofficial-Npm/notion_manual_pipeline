@@ -59,6 +59,7 @@ interface BlockChild {
 interface BlockContent {
   kind: string;
   text?: string;
+  number?: number | null;
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -122,6 +123,19 @@ function renderContentBlock(block: BlockContent): NotionBlock[] {
   switch (block.kind) {
     case 'numbered_list': {
       const children = (block.children ?? []).map(childBlock);
+      // 작성자 번호(number)가 있으면 노션 자동번호(목록마다 1부터 재시작) 대신 그 번호를 보존한다.
+      if (typeof block.number === 'number') {
+        return [
+          {
+            object: 'block',
+            type: 'paragraph',
+            paragraph: {
+              rich_text: richText(`${block.number}. ${block.text ?? ''}`),
+              ...(children.length ? { children } : {}),
+            },
+          },
+        ];
+      }
       return [
         {
           object: 'block',

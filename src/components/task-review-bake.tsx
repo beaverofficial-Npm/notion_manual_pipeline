@@ -45,6 +45,7 @@ interface BlockChild {
 interface BlockContent {
   kind: string;
   text?: string;
+  number?: number | null;
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -507,7 +508,7 @@ function NotionBlockView({ content, index }: { content: BlockContent; index: num
       return (
         <div>
           <div style={styles.listRow}>
-            <span style={styles.listMarker}>{index + 1}.</span>
+            <span style={styles.listMarker}>{content.number ?? index + 1}.</span>
             <span style={styles.listText}>{text}</span>
           </div>
           {children.length > 0 && (
