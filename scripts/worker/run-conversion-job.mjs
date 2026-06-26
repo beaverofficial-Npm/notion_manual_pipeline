@@ -361,6 +361,9 @@ export async function runOnce(jobIdArg) {
                 imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
               }));
             }
+          } else {
+            // 그룹이 없는 슬라이드(로그인 등 단독 이미지) → 캡쳐로 폴백해 이미지 누락 방지
+            screenshots = screenshotCandidates(parsed);
           }
         } else {
           // capture 모드 (기본): 기존 동작 유지
@@ -463,9 +466,10 @@ export async function runOnce(jobIdArg) {
             // capture 모드: 기존 동작 (crop_box 저장, storage_path=null)
             const assetRows = [];
             for (const shot of slide.screenshots.slice(0, 4)) {
+              // 에셋별로 판정: imagePath 있으면 group_bake(구운 이미지 업로드), 없으면 capture(crop_box)
+              const isBaked = Boolean(shot.imagePath);
               let storagePath = null;
-              if (conversionMode === 'group_bake' && shot.imagePath) {
-                // group_bake: 크롭된 이미지를 manual-assets 버킷에 업로드
+              if (isBaked) {
                 const assetFileName = path.basename(shot.imagePath);
                 storagePath = `${job.task_id}/runs/${job.run_number}/assets/${assetFileName}`;
                 await uploadFile(ASSETS_BUCKET, storagePath, shot.imagePath, 'image/png');
@@ -473,14 +477,14 @@ export async function runOnce(jobIdArg) {
               assetRows.push({
                 slide_id: slideId,
                 job_id: job.id,
-                kind: conversionMode === 'group_bake' ? 'group_bake' : 'screenshot',
+                kind: isBaked ? 'group_bake' : 'screenshot',
                 label: shot.label,
                 storage_path: storagePath,
-                crop_box: conversionMode === 'group_bake' ? null : shot.bbox,
+                crop_box: isBaked ? null : shot.bbox,
                 source_element_ids: [],
                 included_annotation_ids: [],
                 review_status: 'pending',
-                review_reason: conversionMode === 'group_bake' ? 'group_bake_auto' : 'extracted_candidate',
+                review_reason: isBaked ? 'group_bake_auto' : 'extracted_candidate',
                 confidence: shot.confidence,
               });
             }
