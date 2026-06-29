@@ -14,6 +14,8 @@ const TIP_WORD_RE = /^(유의사항|유의|참고|주의사항|주의|단,|TIP)/
 const NUMBER_ONLY_RE = /^0?\d{1,2}\s*[.．]?\s*$/;
 const TOC_RE = /목\s*차|contents/i;
 const COVER_RE = /이용\s*가이드|기본\s*메\s*[뉴유]\s*얼|전용\s*메\s*[뉴유]\s*얼|통합\s*가이드/;
+// 속표지(섹션 표지): "…메뉴얼/매뉴얼/가이드" 로 끝나는 짧은 제목. 덱 중간(slideNumber>2)에서도 표지로 잡기 위함.
+const MANUAL_TITLE_RE = /(?:메\s*[뉴유]\s*얼|매\s*뉴\s*얼|가\s*이\s*드)\s*$/;
 const REP_SCREEN_RE = /^대표\s*화면$/;
 
 export function decodeXml(value) {
@@ -153,7 +155,12 @@ export function classifyRole(parsed, slideNumber) {
   const joined = parsed.shapes.map((s) => s.text).join(' ');
   if (TOC_RE.test(joined)) return 'toc';
   const steps = hasSteps(parsed);
-  if (!steps && (slideNumber <= 2 || COVER_RE.test(joined))) return 'cover';
+  // 덱 중간의 속표지: 스텝 없이 "…메뉴얼/매뉴얼/가이드"로 끝나는 짧은 제목이 있고, 본문 텍스트가 희박한(표지성) 슬라이드.
+  // 표지에 큰 히어로 이미지가 있을 수 있으므로 이미지 유무가 아니라 텍스트가 희박한지로 판별한다.
+  const bodyTextShapes = parsed.shapes.filter((s) => !s.isGroupLabel && s.text.length > 1);
+  const titleLike = bodyTextShapes.some((s) => MANUAL_TITLE_RE.test(s.text) && s.text.length <= 30);
+  const sparse = bodyTextShapes.length <= 3;
+  if (!steps && (slideNumber <= 2 || COVER_RE.test(joined) || (titleLike && sparse))) return 'cover';
   const numberShape = parsed.shapes.some((s) => NUMBER_ONLY_RE.test(s.text));
   if (!steps && numberShape) return 'section';
   return 'content';

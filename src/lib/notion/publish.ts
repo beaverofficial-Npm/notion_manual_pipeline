@@ -415,11 +415,15 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
       if (!functions.length) continue;
 
       children.push(headingBlock(1, `📕 ${category.title}`));
+      const categoryNorm = category.title.replace(/\s+/g, '').toLowerCase();
 
       for (const fn of functions) {
         if (signal?.aborted) throw new Error('CANCELLED');
         report(`정리 중: ${fn.title}`);
-        children.push(headingBlock(2, fn.title));
+        // 기능 제목이 자기 카테고리 제목과 같으면(인트로/개요 슬라이드) h2 를 생략해 중복 헤딩을 없앤다.
+        if (fn.title.replace(/\s+/g, '').toLowerCase() !== categoryNorm) {
+          children.push(headingBlock(2, fn.title));
+        }
 
         const slides = data.slidesByFunction.get(fn.id) ?? [];
         for (const slide of slides) {

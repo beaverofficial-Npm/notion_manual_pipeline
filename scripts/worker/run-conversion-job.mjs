@@ -253,7 +253,26 @@ function buildHierarchy(slides) {
     return fn;
   }
 
-  for (const slide of slides) {
+  // 각 슬라이드 위치에서 "바로 다음(중간에 다른 섹션이 없는) 섹션 표지"의 카테고리명(정규화)을 미리 구한다.
+  // content 슬라이드의 기능명이 이 값과 같으면, 그 슬라이드는 다가오는 섹션의 인트로(개요) 페이지로 본다.
+  // (멀리 떨어진 동명 섹션과는 매칭되지 않으므로 서로 다른 매뉴얼의 같은 토픽을 잘못 합치지 않는다.)
+  const nextSectionNorm = new Array(slides.length).fill(null);
+  for (let i = slides.length - 1, pending = null; i >= 0; i -= 1) {
+    if (slides[i].role === 'section') pending = normalizeName(slides[i].section?.categoryTitle ?? '');
+    nextSectionNorm[i] = pending;
+  }
+  // 섹션이 생성되기 전에 먼저 등장한 인트로 슬라이드를 보류했다가, 그 섹션이 생기면 합친다.
+  const pendingIntro = new Map(); // categoryNorm -> [{ name, slide }]
+
+  function attachToCategory(category, name, slide) {
+    const idx = categories.indexOf(category);
+    const key = `${idx}::${normalizeName(name)}`;
+    const fn = functionByKey.get(key) ?? ensureFunction(idx, category, name);
+    fn.slides.push(slide);
+  }
+
+  for (let i = 0; i < slides.length; i += 1) {
+    const slide = slides[i];
     if (slide.role === 'cover' || slide.role === 'toc') continue;
 
     if (slide.role === 'section') {
@@ -261,6 +280,12 @@ function buildHierarchy(slides) {
       currentCategory = { sort_order: categories.length, title: categoryTitle, source: 'section', functions: [] };
       categories.push(currentCategory);
       const categoryIndex = categories.length - 1;
+      // 이 섹션을 기다리던 인트로 슬라이드를 먼저 합친다(맨 위 순서로).
+      const waiting = pendingIntro.get(normalizeName(categoryTitle));
+      if (waiting) {
+        for (const item of waiting) attachToCategory(currentCategory, item.name, item.slide);
+        pendingIntro.delete(normalizeName(categoryTitle));
+      }
       for (const title of functionTitles) {
         ensureFunction(categoryIndex, currentCategory, title);
       }
@@ -268,15 +293,38 @@ function buildHierarchy(slides) {
     }
 
     // content
+    const name = slide.functionName || `슬라이드 ${slide.slide_number}`;
+    const targetNorm = nextSectionNorm[i];
+    // 기능명이 바로 다음 섹션 제목과 같으면 = 그 섹션의 인트로(개요). 그 섹션 카테고리로 합쳐 중복 헤딩을 없앤다.
+    if (targetNorm && normalizeName(name) === targetNorm) {
+      const existing = categories.find((c) => normalizeName(c.title) === targetNorm);
+      if (existing) {
+        attachToCategory(existing, name, slide);
+      } else {
+        const list = pendingIntro.get(targetNorm) ?? [];
+        list.push({ name, slide });
+        pendingIntro.set(targetNorm, list);
+      }
+      continue;
+    }
+
     if (!currentCategory) {
       currentCategory = { sort_order: categories.length, title: '기본', source: 'manual', functions: [] };
       categories.push(currentCategory);
     }
-    const categoryIndex = categories.indexOf(currentCategory);
-    const name = slide.functionName || `슬라이드 ${slide.slide_number}`;
-    const key = `${categoryIndex}::${normalizeName(name)}`;
-    const fn = functionByKey.get(key) ?? ensureFunction(categoryIndex, currentCategory, name);
-    fn.slides.push(slide);
+    attachToCategory(currentCategory, name, slide);
+  }
+
+  // 끝까지 매칭 섹션이 안 나타난 보류분은 유실 방지를 위해 첫 카테고리(없으면 '기본')에 붙인다.
+  if (pendingIntro.size) {
+    if (!categories.length) {
+      currentCategory = { sort_order: 0, title: '기본', source: 'manual', functions: [] };
+      categories.push(currentCategory);
+    }
+    for (const list of pendingIntro.values()) {
+      for (const item of list) attachToCategory(categories[0], item.name, item.slide);
+    }
+    pendingIntro.clear();
   }
 
   return categories

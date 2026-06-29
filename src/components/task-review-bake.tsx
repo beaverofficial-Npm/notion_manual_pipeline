@@ -10,6 +10,9 @@ const pr = primitiveRadius;
 const sc = semanticColors;
 const st = semanticTypography;
 
+// 제목 비교용 정규화(공백 제거·소문자). 기능 제목 == 카테고리 제목이면 중복 헤딩을 숨긴다.
+const norm = (s?: string | null) => (s ?? '').replace(/\s+/g, '').toLowerCase();
+
 // Types (from tree API response)
 interface Slide {
   id: string;
@@ -857,8 +860,10 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                   </div>
                 )}
 
-                {/* 기능 = heading_2 (진한 네이비 배경 바 + 흰 텍스트) */}
-                <div style={styles.functionHeadingBar}>{selectedFunction.title}</div>
+                {/* 기능 = heading_2 (진한 네이비 배경 바). 단, 카테고리 제목과 같으면(인트로/개요) 중복이라 생략. */}
+                {norm(selectedFunction.title) !== norm(selectedCategory?.title) && (
+                  <div style={styles.functionHeadingBar}>{selectedFunction.title}</div>
+                )}
 
                 {selectedFunction.slides.map((slide, slideIdx) => {
                   const bakeAssets = slide.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url);
