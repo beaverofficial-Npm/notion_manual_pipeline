@@ -833,7 +833,7 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                     }}
                     onClick={() => setSelectedFunctionId(fn.id)}
                   >
-                    {fn.title}
+                    {norm(fn.title) === norm(category.title) ? '개요' : fn.title}
                     {functionIncluded[fn.id] === false && <span style={{ marginLeft: 'auto', fontSize: st.fontSizeSM, color: sc.error.text }}>제외</span>}
                   </button>
                 ))}
@@ -947,7 +947,7 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                           lineHeight: st.lineHeight,
                         }}
                       >
-                        {fn.title}
+                        {norm(fn.title) === norm(category.title) ? '개요' : fn.title}
                       </button>
                     );
                   })}
@@ -960,10 +960,12 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
               {(() => {
                 const page = previewData.categories.flatMap((c) => c.functions).find((f) => f.id === previewPageId);
                 if (!page) return <div style={{ color: sc.text.secondary, padding: ps.xl }}>좌측에서 페이지를 선택하세요.</div>;
+                const pageCat = previewData.categories.find((c) => c.functions.some((f) => f.id === page.id));
+                const pageTitle = norm(page.title) === norm(pageCat?.title) ? '개요' : page.title;
                 return (
                   <div style={{ maxWidth: 720, margin: '0 auto', padding: `${ps.xl}px ${ps.xl}px ${ps.xxl || ps.xl}px` }}>
                     <h1 style={{ fontSize: st.fontSizeHeading3, fontWeight: st.fontWeightStrong, color: sc.text.heading, marginTop: 0, marginBottom: ps.lg }}>
-                      {page.title}
+                      {pageTitle}
                     </h1>
                     {page.blocks.length > 0 && <PreviewBlock_ blocks={page.blocks} />}
                     {page.images.length > 0 && (
