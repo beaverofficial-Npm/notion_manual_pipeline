@@ -4,6 +4,7 @@ import { Button, Card, Input, Modal, message, dialog, primitiveRadius, primitive
 import { ArrowLeft, Eye, Loader, Send } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const ps = primitiveSpacing;
 const pr = primitiveRadius;
@@ -626,6 +627,7 @@ function PreviewBlock_({ blocks }: { blocks: PreviewBlock[] }) {
 }
 
 export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tree, setTree] = useState<Category[]>([]);
@@ -791,7 +793,7 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
       {/* Header */}
       <div style={styles.header}>
         <div style={styles.headerLeft}>
-          <Button variant="text" size="sm" icon={<ArrowLeft size={20} />} />
+          <Button variant="text" size="sm" icon={<ArrowLeft size={20} />} onClick={() => router.push('/')} />
           <h1 style={styles.title}>{taskTitle}</h1>
         </div>
         <div style={styles.headerRight}>
