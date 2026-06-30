@@ -426,29 +426,32 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
         }
 
         const slides = data.slidesByFunction.get(fn.id) ?? [];
+        // 번호 목록이 이미지로 끊기지 않게: 기능의 모든 슬라이드 본문을 먼저 펼치고,
+        // 이미지는 그 뒤에 모아서 배치한다(여러 페이지로 나뉜 기능에서 1~9가 이어지도록).
         for (const slide of slides) {
           for (const block of data.blocksBySlide.get(slide.id) ?? []) {
             children.push(...renderContentBlock(block.content));
           }
+        }
+        for (const slide of slides) {
           const assets = data.assetsBySlide.get(slide.id) ?? [];
-          if (assets.length) {
-            let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
-            for (const asset of assets) {
-              let buffer: Buffer | null = null;
-              if (asset.storage_path) {
-                // group_bake: 이미 구워진 이미지를 그대로 노션에 올린다
-                buffer = await loadAsset(asset.storage_path);
-              } else if (asset.crop_box && slide.render_path) {
-                // capture: 렌더에서 crop 후 업로드
-                if (!renderBuffer) renderBuffer = await loadRender(slide.render_path);
-                buffer = await cropRender(renderBuffer, asset.crop_box);
-                await storeCroppedAsset(taskId, asset.id, buffer);
-              }
-              if (!buffer) continue;
-              const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
-              children.push(imageBlock(fileUploadId));
-              imageCount += 1;
+          if (!assets.length) continue;
+          let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
+          for (const asset of assets) {
+            let buffer: Buffer | null = null;
+            if (asset.storage_path) {
+              // group_bake: 이미 구워진 이미지를 그대로 노션에 올린다
+              buffer = await loadAsset(asset.storage_path);
+            } else if (asset.crop_box && slide.render_path) {
+              // capture: 렌더에서 crop 후 업로드
+              if (!renderBuffer) renderBuffer = await loadRender(slide.render_path);
+              buffer = await cropRender(renderBuffer, asset.crop_box);
+              await storeCroppedAsset(taskId, asset.id, buffer);
             }
+            if (!buffer) continue;
+            const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
+            children.push(imageBlock(fileUploadId));
+            imageCount += 1;
           }
         }
 

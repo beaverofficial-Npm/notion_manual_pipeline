@@ -867,24 +867,22 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                   <div style={styles.functionHeadingBar}>{selectedFunction.title}</div>
                 )}
 
-                {selectedFunction.slides.map((slide, slideIdx) => {
-                  const bakeAssets = slide.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url);
-                  const isLastSlide = slideIdx === selectedFunction.slides.length - 1;
+                {(() => {
+                  // 번호 목록이 이미지로 끊기지 않게: 기능의 전 슬라이드 블록을 먼저(번호 1~N 연속),
+                  // 베이크 이미지는 그 뒤로 모은다. (발행 순서와 동일)
+                  const allBlocks = selectedFunction.slides.flatMap((s) => s.blocks);
+                  const allBake = selectedFunction.slides.flatMap((s) =>
+                    s.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url),
+                  );
                   return (
-                    <div key={slide.id} style={styles.notionDoc}>
-                      {/* 본문 블록(발행 순서: 블록 먼저) */}
-                      {slide.blocks.length > 0 && <NotionBlocks blocks={slide.blocks} />}
-
-                      {/* 베이크 이미지: signed_url 을 인라인 풀폭 이미지로 */}
-                      {bakeAssets.map((asset) => (
+                    <div style={styles.notionDoc}>
+                      {allBlocks.length > 0 && <NotionBlocks blocks={allBlocks} />}
+                      {allBake.map((asset) => (
                         <img key={asset.id} src={asset.signed_url || ''} alt={asset.label} style={styles.bakeImage} />
                       ))}
-
-                      {/* 슬라이드(페이지) 사이 divider */}
-                      {!isLastSlide && <div style={styles.divider} />}
                     </div>
                   );
-                })}
+                })()}
               </div>
             ) : (
               <div style={styles.emptyState}>좌측에서 기능을 선택하세요.</div>

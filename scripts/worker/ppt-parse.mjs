@@ -210,19 +210,47 @@ export function extractContentFunctionName(parsed) {
   return null;
 }
 
-// 본문 위계 블록: 단계(numbered) + 하위(bulleted) + 주의(callout) + 표(table)
-// 상단 제목밴드(top<28: 섹션 브레드크럼·기능명 반복)·하단 이미지밴드(top>=60: 이미지 캡션)의
-// 짧은 비문장 라벨은 본문이 아니다 → 제외. 본문(스텝·설명문)은 가운데 밴드에 있고,
-// 스텝을 가진 shape나 문장(…다/요/죠.)은 밴드와 무관하게 보존한다.
-function isStrayLabel(s) {
-  if (s.paragraphs.some((p) => STEP_RE.test(p))) return false;
-  if (SENTENCE_END_RE.test(s.text)) return false;
-  if (s.text.length > 20) return false;
-  return s.bbox.top < 28 || s.bbox.top >= 60;
+// 한 문단에 "1. … 2. … 3. …" 처럼 스텝이 줄바꿈 없이 붙어 있으면 경계에서 쪼갠다.
+// 경계 = 직전 문자가 문장끝/공백/괄호 + 숫자 + .) + 공백. ("9.2" 같은 소수점은 뒤 공백이 없어 안 쪼개짐.)
+function splitInlineSteps(text) {
+  // 직전이 숫자가 아니면(=숫자 중간이 아니면) 스텝마커 앞에서 쪼갠다.
+  // "선택2)"처럼 공백 없이 붙은 경우도 분리되고, "10. "·"3.5"는 숫자 중간이라 안 쪼개짐.
+  return text
+    .split(/(?<!\d)(?=\d{1,2}[.)]\s)/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+// 본문이 아닌 라벨/캡션 판별:
+//  - 상단 제목밴드(top<28): 섹션 브레드크럼·기능명 반복
+//  - 본문 이미지 갤러리 영역과 겹치는 짧은 라벨: 이미지 캡션(가운데여도 잡힘 — 밴드 의존 X)
+// 스텝/문장/긴 텍스트/콜아웃 헤더(유의·참고)는 위치와 무관하게 본문으로 보존한다.
+function makeIsStrayLabel(parsed) {
+  let gx0 = 100, gy0 = 100, gx1 = 0, gy1 = 0, hasPics = false;
+  for (const p of parsed.pics) {
+    if (p.areaRatio < 0.005) continue; // 장식 아이콘 제외, 본문 썸네일만
+    hasPics = true;
+    gx0 = Math.min(gx0, p.bbox.left);
+    gy0 = Math.min(gy0, p.bbox.top);
+    gx1 = Math.max(gx1, p.bbox.left + p.bbox.width);
+    gy1 = Math.max(gy1, p.bbox.top + p.bbox.height);
+  }
+  return function isStrayLabel(s) {
+    if (s.paragraphs.some((p) => STEP_RE.test(p))) return false;
+    if (TIP_HEADER_RE.test(s.text.trim())) return false;
+    if (SENTENCE_END_RE.test(s.text)) return false;
+    if (s.text.length > 20) return false;
+    if (s.bbox.top < 28) return true;
+    if (!hasPics) return false;
+    const cx = s.bbox.left + s.bbox.width / 2;
+    const cy = s.bbox.top + s.bbox.height / 2;
+    return cx >= gx0 && cx <= gx1 && cy >= gy0 && cy <= gy1; // 갤러리 영역 안 = 캡션
+  };
 }
 
 export function buildFunctionBlocks(parsed, functionName) {
   const fnNorm = normalizeName(functionName ?? '');
+  const isStrayLabel = makeIsStrayLabel(parsed);
   const bodyShapes = parsed.shapes
     .filter(
       (s) =>
@@ -249,7 +277,7 @@ export function buildFunctionBlocks(parsed, functionName) {
       continue;
     }
 
-    for (const para of shape.paragraphs) {
+    for (const para of shape.paragraphs.flatMap((p) => splitInlineSteps(p))) {
       const t = para.trim();
       if (!t) continue;
 
