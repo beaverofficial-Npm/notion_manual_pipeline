@@ -3,8 +3,9 @@
 // 실측 기준: docs 통합가이드 PPT의 shape 배치(섹션 표지 = 숫자 shape + 좌측 카테고리명 + 우측 기능목록,
 // 본문 = zero-box 그룹라벨 + 상단 기능명 + 우측 단계 문단).
 
-// 스텝 인식: "N." 은 공백 필수(소수점 오인 방지), "N)" 는 공백 없어도 인정("2)사용자" 같은 케이스).
-const STEP_RE = /^\s*\d{1,2}\s*(?:\.\s+|\)\s*)/;
+// 스텝 인식: "N." 은 공백 필수(소수점 오인 방지), "N)" 는 공백 없어도 인정("2)사용자").
+// 계층 스텝 "1-1." / "1-2)" 도 인식한다(서브스텝 번호 보존).
+const STEP_RE = /^\s*\d{1,2}(?:\s*-\s*\d{1,2})?\s*(?:\.\s+|\)\s*)/;
 const DIGIT_ONLY_RE = /^\d{1,2}$/;
 const SENTENCE_END_RE = /(다|요|죠)\s*[.。]\s*$/;
 const GROUP_PREFIX_RE = /^\s*\d{1,2}(?:\s*-\s*\d{1,2})?\s*[.．]\s*/;
@@ -213,10 +214,10 @@ export function extractContentFunctionName(parsed) {
 // 한 문단에 "1. … 2. … 3. …" 처럼 스텝이 줄바꿈 없이 붙어 있으면 경계에서 쪼갠다.
 // 경계 = 직전 문자가 문장끝/공백/괄호 + 숫자 + .) + 공백. ("9.2" 같은 소수점은 뒤 공백이 없어 안 쪼개짐.)
 function splitInlineSteps(text) {
-  // 직전이 숫자가 아니면(=숫자 중간이 아니면) 스텝마커 앞에서 쪼갠다.
-  // "선택2)"처럼 공백 없이 붙은 경우도 분리되고, "10. "·"3.5"는 숫자 중간이라 안 쪼개짐.
+  // 직전이 숫자/하이픈이 아니면 스텝마커 앞에서 쪼갠다.
+  // "선택2)"처럼 붙은 건 분리하되, "10."·"3.5"(숫자 중간)·"1-1."(계층번호)은 안 쪼개짐.
   return text
-    .split(/(?<!\d)(?=\d{1,2}[.)]\s)/)
+    .split(/(?<![\d-])(?=\d{1,2}[.)]\s)/)
     .map((p) => p.trim())
     .filter(Boolean);
 }
@@ -287,11 +288,14 @@ export function buildFunctionBlocks(parsed, functionName) {
       }
 
       if (STEP_RE.test(t)) {
-        const m = t.match(/^\s*(\d{1,2})\s*([.)])/);
+        const lead = t.match(/^\s*(\d{1,2})/);
+        const labelM = t.match(/^\s*(\d{1,2}(?:\s*-\s*\d{1,2})?\s*[.)])/);
+        const prefix = labelM ? labelM[1].replace(/\s+/g, '') : null; // 원본 마커 그대로: "1.", "1)", "1-1."
         currentStep = {
           kind: 'numbered_list',
-          number: m ? Number(m[1]) : null,
-          marker: m ? m[2] : '.', // PPT 원본 마커 보존: ')' 면 "1)", '.' 면 "1."
+          number: lead ? Number(lead[1]) : null,
+          marker: prefix ? prefix.slice(-1) : '.',
+          prefix,
           text: t.replace(STEP_RE, '').trim(),
           children: [],
         };

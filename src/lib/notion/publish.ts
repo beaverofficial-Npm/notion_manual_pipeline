@@ -61,6 +61,7 @@ interface BlockContent {
   text?: string;
   number?: number | null;
   marker?: string; // PPT 원본 스텝 마커: ')' 또는 '.'
+  prefix?: string | null; // 원본 스텝 라벨 전체: "1.", "1)", "1-1." (계층번호 포함)
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -131,7 +132,7 @@ function renderContentBlock(block: BlockContent): NotionBlock[] {
             object: 'block',
             type: 'paragraph',
             paragraph: {
-              rich_text: richText(`${block.number}${block.marker ?? '.'} ${block.text ?? ''}`),
+              rich_text: richText(`${block.prefix ?? `${block.number}${block.marker ?? '.'}`} ${block.text ?? ''}`),
               ...(children.length ? { children } : {}),
             },
           },
@@ -330,7 +331,7 @@ export async function buildPublishPreview(taskId: string) {
       const functions = (data.functionsByCategory.get(category.id) ?? [])
         .map((fn) => {
           const slides = data.slidesByFunction.get(fn.id) ?? [];
-          const blocks: Array<{ kind: string; text: string; number?: number | null; marker?: string; children: BlockChild[]; rows?: string[][] }> = [];
+          const blocks: Array<{ kind: string; text: string; number?: number | null; marker?: string; prefix?: string | null; children: BlockChild[]; rows?: string[][] }> = [];
           const images: Array<{ renderUrl: string; cropBox: PercentBox; label: string }> = [];
 
           for (const slide of slides) {
@@ -340,6 +341,7 @@ export async function buildPublishPreview(taskId: string) {
                 text: block.content.text ?? '',
                 number: block.content.number,
                 marker: block.content.marker,
+                prefix: block.content.prefix,
                 children: block.content.children ?? [],
                 rows: block.content.rows,
               });

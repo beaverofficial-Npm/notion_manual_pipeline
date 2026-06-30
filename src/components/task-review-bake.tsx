@@ -51,6 +51,7 @@ interface BlockContent {
   text?: string;
   number?: number | null;
   marker?: string; // PPT 원본 스텝 마커: ')' 또는 '.'
+  prefix?: string | null; // 원본 스텝 라벨: "1.", "1)", "1-1."
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -107,6 +108,7 @@ interface PreviewBlock {
   text?: string;
   number?: number | null;
   marker?: string;
+  prefix?: string | null;
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -515,7 +517,7 @@ function NotionBlockView({ content, index }: { content: BlockContent; index: num
       return (
         <div>
           <div style={styles.listRow}>
-            <span style={styles.listMarker}>{content.number ?? index + 1}{content.marker ?? '.'}</span>
+            <span style={styles.listMarker}>{content.prefix ?? `${content.number ?? index + 1}${content.marker ?? '.'}`}</span>
             <span style={styles.listText}>{text}</span>
           </div>
           {children.length > 0 && (
@@ -610,7 +612,7 @@ function PreviewBlock_({ blocks }: { blocks: PreviewBlock[] }) {
           return (
             <div key={idx}>
               <div style={styles.listRow}>
-                <span style={styles.listMarker}>{block.number ?? index + 1}{block.marker ?? '.'}</span>
+                <span style={styles.listMarker}>{block.prefix ?? `${block.number ?? index + 1}${block.marker ?? '.'}`}</span>
                 <span style={styles.listText}>{block.text ?? ''}</span>
               </div>
               {children.length > 0 && (
