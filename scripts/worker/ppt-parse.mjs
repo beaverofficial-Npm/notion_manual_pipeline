@@ -287,8 +287,14 @@ export function buildFunctionBlocks(parsed, functionName) {
       }
 
       if (STEP_RE.test(t)) {
-        const stepNum = t.match(/^\s*(\d{1,2})/);
-        currentStep = { kind: 'numbered_list', number: stepNum ? Number(stepNum[1]) : null, text: t.replace(STEP_RE, '').trim(), children: [] };
+        const m = t.match(/^\s*(\d{1,2})\s*([.)])/);
+        currentStep = {
+          kind: 'numbered_list',
+          number: m ? Number(m[1]) : null,
+          marker: m ? m[2] : '.', // PPT 원본 마커 보존: ')' 면 "1)", '.' 면 "1."
+          text: t.replace(STEP_RE, '').trim(),
+          children: [],
+        };
         blocks.push(currentStep);
       } else if (TIP_INLINE_RE.test(t) || TIP_WORD_RE.test(t)) {
         pushChildOrTop({ kind: 'callout', text: t.replace(/^\s*[*※]\s*/, '').trim() });

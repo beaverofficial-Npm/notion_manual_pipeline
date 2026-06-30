@@ -1,6 +1,6 @@
 import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
-import { cropRender, loadAsset, loadRender, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
+import { cropRender, loadAsset, loadRender, resizeForPublish, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
 
 const NOTION_VERSION = '2022-06-28';
 const MAX_CHILDREN_PER_REQUEST = 100;
@@ -60,6 +60,7 @@ interface BlockContent {
   kind: string;
   text?: string;
   number?: number | null;
+  marker?: string; // PPT 원본 스텝 마커: ')' 또는 '.'
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -130,7 +131,7 @@ function renderContentBlock(block: BlockContent): NotionBlock[] {
             object: 'block',
             type: 'paragraph',
             paragraph: {
-              rich_text: richText(`${block.number}. ${block.text ?? ''}`),
+              rich_text: richText(`${block.number}${block.marker ?? '.'} ${block.text ?? ''}`),
               ...(children.length ? { children } : {}),
             },
           },
@@ -329,7 +330,7 @@ export async function buildPublishPreview(taskId: string) {
       const functions = (data.functionsByCategory.get(category.id) ?? [])
         .map((fn) => {
           const slides = data.slidesByFunction.get(fn.id) ?? [];
-          const blocks: Array<{ kind: string; text: string; children: BlockChild[]; rows?: string[][] }> = [];
+          const blocks: Array<{ kind: string; text: string; number?: number | null; marker?: string; children: BlockChild[]; rows?: string[][] }> = [];
           const images: Array<{ renderUrl: string; cropBox: PercentBox; label: string }> = [];
 
           for (const slide of slides) {
@@ -337,6 +338,8 @@ export async function buildPublishPreview(taskId: string) {
               blocks.push({
                 kind: block.content.kind,
                 text: block.content.text ?? '',
+                number: block.content.number,
+                marker: block.content.marker,
                 children: block.content.children ?? [],
                 rows: block.content.rows,
               });
@@ -426,14 +429,12 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
         }
 
         const slides = data.slidesByFunction.get(fn.id) ?? [];
-        // 번호 목록이 이미지로 끊기지 않게: 기능의 모든 슬라이드 본문을 먼저 펼치고,
-        // 이미지는 그 뒤에 모아서 배치한다(여러 페이지로 나뉜 기능에서 1~9가 이어지도록).
+        // 페이지(슬라이드)별로: 그 페이지 본문 → 그 페이지 이미지 순으로 짝지어 배치한다.
+        // (각 페이지의 스텝이 그 페이지 이미지를 설명하므로 페이지 단위로 묶어 둔다.)
         for (const slide of slides) {
           for (const block of data.blocksBySlide.get(slide.id) ?? []) {
             children.push(...renderContentBlock(block.content));
           }
-        }
-        for (const slide of slides) {
           const assets = data.assetsBySlide.get(slide.id) ?? [];
           if (!assets.length) continue;
           let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
@@ -449,6 +450,7 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
               await storeCroppedAsset(taskId, asset.id, buffer);
             }
             if (!buffer) continue;
+            buffer = await resizeForPublish(buffer); // 노션 발행 이미지 ~75% 축소
             const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
             children.push(imageBlock(fileUploadId));
             imageCount += 1;

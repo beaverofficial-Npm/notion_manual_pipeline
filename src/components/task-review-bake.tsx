@@ -50,6 +50,7 @@ interface BlockContent {
   kind: string;
   text?: string;
   number?: number | null;
+  marker?: string; // PPT 원본 스텝 마커: ')' 또는 '.'
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -104,6 +105,8 @@ interface PreviewFunction {
 interface PreviewBlock {
   kind: string;
   text?: string;
+  number?: number | null;
+  marker?: string;
   children?: BlockChild[];
   rows?: string[][];
 }
@@ -512,7 +515,7 @@ function NotionBlockView({ content, index }: { content: BlockContent; index: num
       return (
         <div>
           <div style={styles.listRow}>
-            <span style={styles.listMarker}>{content.number ?? index + 1}.</span>
+            <span style={styles.listMarker}>{content.number ?? index + 1}{content.marker ?? '.'}</span>
             <span style={styles.listText}>{text}</span>
           </div>
           {children.length > 0 && (
@@ -607,7 +610,7 @@ function PreviewBlock_({ blocks }: { blocks: PreviewBlock[] }) {
           return (
             <div key={idx}>
               <div style={styles.listRow}>
-                <span style={styles.listMarker}>{index + 1}.</span>
+                <span style={styles.listMarker}>{block.number ?? index + 1}{block.marker ?? '.'}</span>
                 <span style={styles.listText}>{block.text ?? ''}</span>
               </div>
               {children.length > 0 && (
@@ -867,22 +870,20 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                   <div style={styles.functionHeadingBar}>{selectedFunction.title}</div>
                 )}
 
-                {(() => {
-                  // 번호 목록이 이미지로 끊기지 않게: 기능의 전 슬라이드 블록을 먼저(번호 1~N 연속),
-                  // 베이크 이미지는 그 뒤로 모은다. (발행 순서와 동일)
-                  const allBlocks = selectedFunction.slides.flatMap((s) => s.blocks);
-                  const allBake = selectedFunction.slides.flatMap((s) =>
-                    s.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url),
-                  );
+                {selectedFunction.slides.map((slide, slideIdx) => {
+                  // 페이지(슬라이드)별로: 그 페이지 본문 → 그 페이지 이미지 순으로 짝지어 보여준다.
+                  const bakeAssets = slide.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url);
+                  const isLastSlide = slideIdx === selectedFunction.slides.length - 1;
                   return (
-                    <div style={styles.notionDoc}>
-                      {allBlocks.length > 0 && <NotionBlocks blocks={allBlocks} />}
-                      {allBake.map((asset) => (
+                    <div key={slide.id} style={styles.notionDoc}>
+                      {slide.blocks.length > 0 && <NotionBlocks blocks={slide.blocks} />}
+                      {bakeAssets.map((asset) => (
                         <img key={asset.id} src={asset.signed_url || ''} alt={asset.label} style={styles.bakeImage} />
                       ))}
+                      {!isLastSlide && <div style={styles.divider} />}
                     </div>
                   );
-                })()}
+                })}
               </div>
             ) : (
               <div style={styles.emptyState}>좌측에서 기능을 선택하세요.</div>

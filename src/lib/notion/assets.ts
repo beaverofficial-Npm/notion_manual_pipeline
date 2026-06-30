@@ -55,6 +55,16 @@ export async function loadRender(renderPath: string): Promise<Buffer> {
   return Buffer.from(await data.arrayBuffer());
 }
 
+// 노션 발행 시 이미지 폭을 줄여 더 작게 보이게 한다.
+// (노션 API는 이미지 표시 폭 %를 직접 지정 못 함 → 이미지 자체를 줄여 올린다. 기본 폭은 일반 페이지에서 ~75% 정도.)
+const PUBLISH_MAX_WIDTH = Number(process.env.NOTION_IMAGE_MAX_WIDTH ?? 540);
+export async function resizeForPublish(buffer: Buffer): Promise<Buffer> {
+  if (!Number.isFinite(PUBLISH_MAX_WIDTH) || PUBLISH_MAX_WIDTH <= 0) return buffer;
+  const meta = await sharp(buffer).metadata();
+  if (!meta.width || meta.width <= PUBLISH_MAX_WIDTH) return buffer;
+  return sharp(buffer).resize({ width: PUBLISH_MAX_WIDTH }).png().toBuffer();
+}
+
 // group_bake 등 이미 manual-assets 버킷에 저장된 이미지를 그대로 불러온다.
 export async function loadAsset(storagePath: string): Promise<Buffer> {
   const supabase = createServiceSupabaseClient();
