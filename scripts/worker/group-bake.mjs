@@ -8,18 +8,18 @@
  *    → 슬라이드의 모든 최상위 그룹의 bbox를 슬라이드 비율 `[{xFrac, yFrac, wFrac, hFrac}]`로 반환.
  *
  * 2. cropGroups(slidePngPath, boxes, outDir, slideNumber)
- *    → 각 bbox를 px로 환산해 ImageMagick으로 크롭 → PNG 경로 배열.
+ *    → 각 bbox를 px로 환산해 sharp로 크롭 → PNG 경로 배열.
  *
  * DB/Supabase 의존 없이 순수 XML 파싱 + 렌더 크롭만 수행.
  * 중첩 그룹(그룹 안 그룹)은 일단 최상위만 처리 // TODO: nested groups
  */
 
-import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import sharp from 'sharp';
 import path from 'node:path';
-import { promisify } from 'node:util';
 
-const execFileAsync = promisify(execFile);
+// 작은 컨테이너(Railway)에서 OOM 방지: sharp 메모리 캐시/동시성 제한 (capture 발행 경로와 동일).
+sharp.cache(false);
+sharp.concurrency(1);
 
 /**
  * XML 속성 추출 (정규식 기반, 단순 케이스용)
@@ -185,15 +185,14 @@ export async function cropGroups(slidePngPath, boxes, outDir, slideNumber) {
     return [];
   }
 
-  // 슬라이드 PNG 크기 확인 (ImageMagick identify)
+  // 슬라이드 PNG 크기 확인 (sharp metadata — 시스템 바이너리 불필요)
   let imageInfo;
   try {
-    const { stdout } = await execFileAsync('magick', ['identify', '-format', '%wx%h', slidePngPath]);
-    const match = stdout.trim().match(/(\d+)x(\d+)/);
-    if (!match) {
-      throw new Error(`Could not parse image size: ${stdout}`);
+    const meta = await sharp(slidePngPath).metadata();
+    if (!meta.width || !meta.height) {
+      throw new Error(`Could not read image size: ${slidePngPath}`);
     }
-    imageInfo = { w: Number(match[1]), h: Number(match[2]) };
+    imageInfo = { w: meta.width, h: meta.height };
   } catch (error) {
     throw new Error(`[group-bake] identify failed: ${error.message}`);
   }
@@ -217,9 +216,11 @@ export async function cropGroups(slidePngPath, boxes, outDir, slideNumber) {
     const outPath = path.join(outDir, `slide-${String(slideNumber).padStart(3, '0')}-group-${String(i).padStart(2, '0')}.png`);
 
     try {
-      // ImageMagick crop: WIDTHxHEIGHT+X+Y
-      const cropGeom = `${wClamped}x${hClamped}+${xClamped}+${yClamped}`;
-      await execFileAsync('magick', ['convert', slidePngPath, '-crop', cropGeom, '+repage', outPath]);
+      // sharp crop: extract({ left, top, width, height })
+      await sharp(slidePngPath)
+        .extract({ left: xClamped, top: yClamped, width: wClamped, height: hClamped })
+        .png()
+        .toFile(outPath);
       results.push(outPath);
     } catch (error) {
       console.error(`[group-bake] crop failed for group ${i}: ${error.message}`);
