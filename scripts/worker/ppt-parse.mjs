@@ -3,7 +3,8 @@
 // 실측 기준: docs 통합가이드 PPT의 shape 배치(섹션 표지 = 숫자 shape + 좌측 카테고리명 + 우측 기능목록,
 // 본문 = zero-box 그룹라벨 + 상단 기능명 + 우측 단계 문단).
 
-const STEP_RE = /^\s*\d{1,2}\s*[.)]\s+/;
+// 스텝 인식: "N." 은 공백 필수(소수점 오인 방지), "N)" 는 공백 없어도 인정("2)사용자" 같은 케이스).
+const STEP_RE = /^\s*\d{1,2}\s*(?:\.\s+|\)\s*)/;
 const DIGIT_ONLY_RE = /^\d{1,2}$/;
 const SENTENCE_END_RE = /(다|요|죠)\s*[.。]\s*$/;
 const GROUP_PREFIX_RE = /^\s*\d{1,2}(?:\s*-\s*\d{1,2})?\s*[.．]\s*/;
@@ -210,6 +211,16 @@ export function extractContentFunctionName(parsed) {
 }
 
 // 본문 위계 블록: 단계(numbered) + 하위(bulleted) + 주의(callout) + 표(table)
+// 상단 제목밴드(top<28: 섹션 브레드크럼·기능명 반복)·하단 이미지밴드(top>=60: 이미지 캡션)의
+// 짧은 비문장 라벨은 본문이 아니다 → 제외. 본문(스텝·설명문)은 가운데 밴드에 있고,
+// 스텝을 가진 shape나 문장(…다/요/죠.)은 밴드와 무관하게 보존한다.
+function isStrayLabel(s) {
+  if (s.paragraphs.some((p) => STEP_RE.test(p))) return false;
+  if (SENTENCE_END_RE.test(s.text)) return false;
+  if (s.text.length > 20) return false;
+  return s.bbox.top < 28 || s.bbox.top >= 60;
+}
+
 export function buildFunctionBlocks(parsed, functionName) {
   const fnNorm = normalizeName(functionName ?? '');
   const bodyShapes = parsed.shapes
@@ -218,7 +229,8 @@ export function buildFunctionBlocks(parsed, functionName) {
         !s.isGroupLabel &&
         !REP_SCREEN_RE.test(s.text) &&
         normalizeName(s.text) !== fnNorm &&
-        !NUMBER_ONLY_RE.test(s.text),
+        !NUMBER_ONLY_RE.test(s.text) &&
+        !isStrayLabel(s),
     )
     .sort((a, b) => a.bbox.top - b.bbox.top || a.bbox.left - b.bbox.left);
 

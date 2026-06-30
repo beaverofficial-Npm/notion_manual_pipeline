@@ -410,8 +410,27 @@ export async function runOnce(jobIdArg) {
               }));
             }
           } else {
-            // 그룹이 없는 슬라이드(로그인 등 단독 이미지) → 캡쳐로 폴백해 이미지 누락 방지
-            screenshots = screenshotCandidates(parsed);
+            // 그룹이 없는 슬라이드(로그인 등 단독 이미지) → 스크린샷 후보 영역을 렌더에서 sharp로 구워
+            // 이미지 에셋으로 만든다. (자동추출 미리보기는 group_bake 종류만 렌더하므로 crop_box만 두면 누락됨)
+            const zones = screenshotCandidates(parsed);
+            const localRender = renderedSlides[slideNumber - 1];
+            if (zones.length > 0 && localRender) {
+              const fracBoxes = zones.map((z) => ({
+                xFrac: z.bbox.left / 100,
+                yFrac: z.bbox.top / 100,
+                wFrac: z.bbox.width / 100,
+                hFrac: z.bbox.height / 100,
+              }));
+              const croppedPaths = await cropGroups(localRender, fracBoxes, tmpDir, slideNumber);
+              screenshots = croppedPaths.map((croppedPath, index) => ({
+                label: zones[index]?.label ?? `이미지 영역 ${index + 1}`,
+                bbox: null,
+                confidence: zones[index]?.confidence ?? 0.8,
+                imagePath: croppedPath,
+              }));
+            } else {
+              screenshots = zones;
+            }
           }
         } else {
           // capture 모드 (기본): 기존 동작 유지
