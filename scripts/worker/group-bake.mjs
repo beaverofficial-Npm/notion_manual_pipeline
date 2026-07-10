@@ -182,6 +182,72 @@ export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
  * @param {object} box — { xFrac, yFrac, wFrac, hFrac }
  * @param {array} picsPercent — parseSlideShapes 의 pics ({ bbox: {left,top,width,height} % , areaRatio })
  */
+/**
+ * contentCropBox(box, parsed)
+ *
+ * 이미지 박스를 "스코프"로만 쓰고, 크롭은 콘텐츠에 딱 맞춘다:
+ *  - 포함: 중심이 박스 안에 있는 이미지들 + 박스 안 어노테이션/짧은 라벨(뱃지·헤더칩)
+ *  - 제외: 본문 텍스트 컬럼(중심이 박스 밖의 긴 텍스트) — 크롭이 닿지 않게 직전에서 클램프
+ * 이렇게 해야 (a) 박스보다 작은 콘텐츠일 때 상하 빈 띠가 없고
+ * (b) 박스 밖으로 삐져나온 이미지 때문에 본문 텍스트 조각이 딸려 들어오지 않는다.
+ *
+ * @param {object} box — { xFrac, yFrac, wFrac, hFrac } (이미지 박스)
+ * @param {object} parsed — parseSlideShapes 결과 ({ shapes, pics })
+ * @returns {object} { xFrac, yFrac, wFrac, hFrac }
+ */
+export function contentCropBox(box, parsed) {
+  const bx0 = box.xFrac * 100, by0 = box.yFrac * 100;
+  const bx1 = bx0 + box.wFrac * 100, by1 = by0 + box.hFrac * 100;
+  const centerIn = (bb) => {
+    const cx = bb.left + bb.width / 2, cy = bb.top + bb.height / 2;
+    return cx >= bx0 && cx <= bx1 && cy >= by0 && cy <= by1;
+  };
+
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const grow = (bb) => {
+    x0 = Math.min(x0, bb.left); y0 = Math.min(y0, bb.top);
+    x1 = Math.max(x1, bb.left + bb.width); y1 = Math.max(y1, bb.top + bb.height);
+  };
+  for (const p of parsed.pics ?? []) {
+    if ((p.areaRatio ?? 0) < 0.005) continue;
+    if (centerIn(p.bbox)) grow(p.bbox);
+  }
+  if (!Number.isFinite(x0)) {
+    // 박스 안 이미지가 없으면 박스 그대로
+    return box;
+  }
+  // 박스 안 어노테이션/짧은 라벨(숫자 뱃지·헤더칩 등)도 포함해 잘리지 않게 한다.
+  for (const s of parsed.shapes ?? []) {
+    if (s.isGroupLabel) continue;
+    if (s.text.length > 20) continue; // 본문/설명문은 제외
+    if (!centerIn(s.bbox)) continue;
+    grow(s.bbox);
+  }
+
+  const PAD = 0.8; // %
+  x0 = Math.max(0, x0 - PAD); y0 = Math.max(0, y0 - PAD);
+  x1 = Math.min(100, x1 + PAD); y1 = Math.min(100, y1 + PAD);
+
+  // 본문 텍스트 컬럼(중심이 박스 밖의 긴 텍스트)에 크롭이 닿지 않게 우측 클램프
+  for (const s of parsed.shapes ?? []) {
+    if (s.isGroupLabel || s.text.length <= 20) continue;
+    const cx = s.bbox.left + s.bbox.width / 2, cy = s.bbox.top + s.bbox.height / 2;
+    const outside = !(cx >= bx0 && cx <= bx1 && cy >= by0 && cy <= by1);
+    if (outside && s.bbox.left > (bx0 + bx1) / 2 && s.bbox.left < x1) {
+      // 본문 shape 의 left 경계까지는 안전(글리프는 shape 안쪽에서 시작) — 저자가 텍스트 직전까지
+      // 붙여 그린 어노테이션(점선 말풍선 등)이 잘리지 않게 여유 없이 딱 맞춘다.
+      x1 = Math.max(x0 + 1, s.bbox.left);
+    }
+  }
+
+  return {
+    xFrac: Number((x0 / 100).toFixed(6)),
+    yFrac: Number((y0 / 100).toFixed(6)),
+    wFrac: Number(((x1 - x0) / 100).toFixed(6)),
+    hFrac: Number(((y1 - y0) / 100).toFixed(6)),
+  };
+}
+
 export function expandBoxWithPics(box, picsPercent) {
   let x0 = box.xFrac, y0 = box.yFrac, x1 = box.xFrac + box.wFrac, y1 = box.yFrac + box.hFrac;
   for (const p of picsPercent ?? []) {
