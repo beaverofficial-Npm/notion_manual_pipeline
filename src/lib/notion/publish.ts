@@ -455,9 +455,9 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
           for (const block of data.blocksBySlide.get(slide.id) ?? []) {
             children.push(...renderContentBlock(block.content));
           }
+          // 페이지(슬라이드) 경계마다 구분선 — 한 기능이 여러 페이지여도 페이지 구분이 명확하게.
+          children.push({ object: 'block', type: 'divider', divider: {} });
         }
-
-        children.push({ object: 'block', type: 'divider', divider: {} });
         functionCount += 1;
         done += 1;
         report(`정리 중: ${fn.title}`);

@@ -47,8 +47,8 @@ export async function POST(request: Request) {
     }
 
     const title = typeof titleValue === 'string' && titleValue.trim() ? titleValue.trim() : fileNameToTitle(file.name);
-    // mode 검증: 'capture' 또는 'group_bake', 미지정 시 기본값 'capture'
-    const mode = typeof modeValue === 'string' && modeValue.trim() ? modeValue.trim() : 'capture';
+    // mode 검증: 미지정 시 기본값 'group_bake'(자동 추출 단일 — 레거시 캡쳐는 웹에서 제거, 값은 기존 호환용으로만 허용)
+    const mode = typeof modeValue === 'string' && modeValue.trim() ? modeValue.trim() : 'group_bake';
     if (!['capture', 'group_bake'].includes(mode)) {
       return NextResponse.json({ message: 'mode은 capture 또는 group_bake이어야 합니다.' }, { status: 400 });
     }

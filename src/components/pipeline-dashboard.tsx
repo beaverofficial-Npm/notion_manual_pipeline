@@ -462,7 +462,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState(initialProjects);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [conversionMode, setConversionMode] = useState<'capture' | 'group_bake'>('capture');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStep, setSubmitStep] = useState('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
@@ -588,7 +587,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
     const formData = new FormData();
     formData.append('file', selectedFile);
-    formData.append('mode', conversionMode);
+    formData.append('mode', 'group_bake'); // 자동 추출 단일(레거시 캡쳐 제거)
 
     try {
       const response = await fetch('/api/tasks', {
@@ -901,42 +900,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             </label>
 
             <div style={styles.newTaskControls}>
-              <label style={{ ...styles.field, opacity: selectedFile ? 1 : 0.5 }}>
-                변환 방식
-                <div style={{ display: 'flex', gap: ps.md, marginTop: ps.xs, flexDirection: 'column' }}>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: ps.sm, cursor: selectedFile ? 'pointer' : 'default' }}>
-                    <input
-                      type="radio"
-                      name="conversion_mode"
-                      value="capture"
-                      checked={conversionMode === 'capture'}
-                      disabled={!selectedFile}
-                      onChange={() => setConversionMode('capture')}
-                      style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
-                    />
-                    <div>
-                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>캡쳐 모드</span>
-                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>슬라이드를 렌더해 이미지 영역을 잘라냄(크롭 수정 필요)</span>
-                    </div>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: ps.sm, cursor: selectedFile ? 'pointer' : 'default' }}>
-                    <input
-                      type="radio"
-                      name="conversion_mode"
-                      value="group_bake"
-                      checked={conversionMode === 'group_bake'}
-                      disabled={!selectedFile}
-                      onChange={() => setConversionMode('group_bake')}
-                      style={{ cursor: selectedFile ? 'pointer' : 'default', marginTop: 6 }}
-                    />
-                    <div>
-                      <span style={{ ...styles.smallText, margin: 0, display: 'block', fontWeight: st.fontWeightMedium }}>자동 추출</span>
-                      <span style={{ ...styles.smallText, margin: 0, color: sc.text.tertiary, fontSize: st.fontSizeSM }}>PPT에서 그룹으로 묶은 요소(화살표·주석 포함)를 한 장으로 (크롭 수정 없이 검토만)</span>
-                    </div>
-                  </label>
-                </div>
-              </label>
-
+              {/* 변환 방식은 자동 추출(group_bake) 단일 — 레거시 캡쳐 모드는 웹에서 제거됨 */}
               <Button
                 variant="primary"
                 block
