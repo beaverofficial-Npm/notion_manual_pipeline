@@ -12,7 +12,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { parseGroupBoxes, cropGroups } from './group-bake.mjs';
+import { parseGroupBoxes, parseImageBoxes, expandBoxWithPics, cropGroups } from './group-bake.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -199,7 +199,7 @@ async function uploadFile(bucket, storagePath, filePath, contentType) {
 }
 
 // 슬라이드 순회로 카테고리/기능 트리를 만들고 본문 슬라이드를 기능에 매단다.
-function buildHierarchy(slides) {
+export function buildHierarchy(slides) {
   const categories = [];
   let currentCategory = null;
   const functionByKey = new Map(); // categoryIndex::nameNorm -> function
@@ -375,8 +375,24 @@ export async function runOnce(jobIdArg) {
       cy: firstNumber(presentationXml, /<p:sldSz[^>]*cy="(\d+)"/),
     };
 
+    // 슬라이드 → 레이아웃 XML (이미지 박스가 slideLayout 에 있는 v2 덱 지원). 레이아웃은 캐시.
+    const layoutXmlCache = new Map();
+    async function layoutXmlFor(slideEntry) {
+      try {
+        const relsEntry = slideEntry.replace(/slides\/(slide\d+\.xml)$/, 'slides/_rels/$1.rels');
+        const rels = await unzipText(pptPath, relsEntry);
+        const target = rels.match(/Target="[^"]*slideLayouts\/([^"]+)"/)?.[1];
+        if (!target) return null;
+        const layoutEntry = `ppt/slideLayouts/${target}`;
+        if (!layoutXmlCache.has(layoutEntry)) layoutXmlCache.set(layoutEntry, await unzipText(pptPath, layoutEntry));
+        return layoutXmlCache.get(layoutEntry);
+      } catch {
+        return null;
+      }
+    }
+
     // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
-    // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 그룹 베이킹)
+    // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 이미지박스→그룹→영역 베이킹)
     const parsedSlides = [];
     for (const entry of slideEntries) {
       const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
@@ -394,43 +410,43 @@ export async function runOnce(jobIdArg) {
       let screenshots = [];
       if (role === 'content') {
         if (conversionMode === 'group_bake') {
-          // 그룹 베이크 모드: 그룹 bbox 파싱 → 크롭 → 이미지 에셋으로 저장
-          const groupBoxes = parseGroupBoxes(slideXml, slideSize);
-          if (groupBoxes.length > 0) {
-            const localRender = renderedSlides[slideNumber - 1];
-            if (localRender) {
-              const croppedPaths = await cropGroups(localRender, groupBoxes, tmpDir, slideNumber);
-              // 각 크롭된 그룹을 screenshot 객체로 변환
-              // (uploadFile 시 자동으로 저장되며, 파일명이 곧 식별자)
-              screenshots = croppedPaths.map((croppedPath, index) => ({
-                label: `Group ${index + 1}`,
-                bbox: null, // 그룹 베이크는 전체 크롭 이미지이므로 bbox 불필요
-                confidence: 0.95,
-                imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
-              }));
-            }
-          } else {
-            // 그룹이 없는 슬라이드(로그인 등 단독 이미지) → 스크린샷 후보 영역을 렌더에서 sharp로 구워
-            // 이미지 에셋으로 만든다. (자동추출 미리보기는 group_bake 종류만 렌더하므로 crop_box만 두면 누락됨)
-            const zones = screenshotCandidates(parsed);
-            const localRender = renderedSlides[slideNumber - 1];
-            if (zones.length > 0 && localRender) {
-              const fracBoxes = zones.map((z) => ({
-                xFrac: z.bbox.left / 100,
-                yFrac: z.bbox.top / 100,
-                wFrac: z.bbox.width / 100,
-                hFrac: z.bbox.height / 100,
-              }));
-              const croppedPaths = await cropGroups(localRender, fracBoxes, tmpDir, slideNumber);
-              screenshots = croppedPaths.map((croppedPath, index) => ({
-                label: zones[index]?.label ?? `이미지 영역 ${index + 1}`,
-                bbox: null,
-                confidence: zones[index]?.confidence ?? 0.8,
-                imagePath: croppedPath,
-              }));
-            } else {
-              screenshots = zones;
-            }
+          const localRender = renderedSlides[slideNumber - 1];
+          const hasRealPics = parsed.pics.some((p) => p.areaRatio >= 0.005);
+
+          // 1순위: 이미지 박스(슬라이드/레이아웃의 이미지 컨테이너) 기준 크롭.
+          //        빈 박스를 굽지 않도록 실제 이미지가 있는 슬라이드에서만 쓰고,
+          //        박스 밖으로 살짝 넘친 이미지(우측 갤러리·하단 내비 등)는 합집합으로 포함해 잘림을 막는다.
+          let boxes = hasRealPics ? parseImageBoxes(slideXml, await layoutXmlFor(entry), slideSize) : [];
+          boxes = boxes.map((b) => expandBoxWithPics(b, parsed.pics));
+          let labelOf = (i) => `이미지 박스${boxes.length > 1 ? ` ${i + 1}` : ''}`;
+
+          // 2순위: 그룹(grpSp) bbox — 이미지 박스가 없는 덱의 기존 동작.
+          if (!boxes.length) {
+            boxes = parseGroupBoxes(slideXml, slideSize);
+            labelOf = (i) => `Group ${i + 1}`;
+          }
+
+          // 3순위: 스크린샷 후보 영역(휴리스틱) — 그룹조차 없는 슬라이드(단독 이미지 등).
+          let zones = null;
+          if (!boxes.length) {
+            zones = screenshotCandidates(parsed);
+            boxes = zones.map((z) => ({
+              xFrac: z.bbox.left / 100,
+              yFrac: z.bbox.top / 100,
+              wFrac: z.bbox.width / 100,
+              hFrac: z.bbox.height / 100,
+            }));
+            labelOf = (i) => zones[i]?.label ?? `이미지 영역 ${i + 1}`;
+          }
+
+          if (boxes.length > 0 && localRender) {
+            const croppedPaths = await cropGroups(localRender, boxes, tmpDir, slideNumber);
+            screenshots = croppedPaths.map((croppedPath, index) => ({
+              label: labelOf(index),
+              bbox: null, // 구워진 이미지라 crop_box 불필요
+              confidence: zones ? zones[index]?.confidence ?? 0.8 : 0.95,
+              imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
+            }));
           }
         } else {
           // capture 모드 (기본): 기존 동작 유지
@@ -620,10 +636,15 @@ export async function runOnce(jobIdArg) {
 
 // 컨테이너 재시작 등으로 멈춘 running job 을 다시 queued 로 돌려 재처리한다(단일 worker 전제).
 export async function reclaimStuckJobs() {
+  // 나이 컷오프: 방금 시작한 running job 까지 조건 없이 queued 로 되돌리면
+  // 다른 프로세스가 처리 중인 job 을 가로채 이중 처리(중복 키)가 난다.
+  // 변환은 보통 2~5분 내 끝나므로 15분 넘게 running 인 것만 죽은 것으로 회수한다.
+  const cutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString();
   const { data, error } = await supabase
     .from('manual_conversion_jobs')
     .update({ status: 'queued', worker_id: null, started_at: null })
     .eq('status', 'running')
+    .or(`started_at.lt.${cutoff},started_at.is.null`)
     .select('id');
   if (error) {
     console.error('[worker] reclaim error:', error.message);

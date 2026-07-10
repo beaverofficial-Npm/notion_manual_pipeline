@@ -431,14 +431,9 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
         }
 
         const slides = data.slidesByFunction.get(fn.id) ?? [];
-        // 페이지(슬라이드)별로: 그 페이지 본문 → 그 페이지 이미지 순으로 짝지어 배치한다.
-        // (각 페이지의 스텝이 그 페이지 이미지를 설명하므로 페이지 단위로 묶어 둔다.)
+        // 페이지(슬라이드)별로 짝지어 배치하되, 순서는 이미지 먼저 → 그 아래 본문 텍스트.
         for (const slide of slides) {
-          for (const block of data.blocksBySlide.get(slide.id) ?? []) {
-            children.push(...renderContentBlock(block.content));
-          }
           const assets = data.assetsBySlide.get(slide.id) ?? [];
-          if (!assets.length) continue;
           let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
           for (const asset of assets) {
             let buffer: Buffer | null = null;
@@ -456,6 +451,9 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
             const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
             children.push(imageBlock(fileUploadId));
             imageCount += 1;
+          }
+          for (const block of data.blocksBySlide.get(slide.id) ?? []) {
+            children.push(...renderContentBlock(block.content));
           }
         }
 

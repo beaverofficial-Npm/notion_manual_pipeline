@@ -132,6 +132,79 @@ function fractionBox(xfrm, slideSize) {
 }
 
 /**
+ * parseImageBoxes(slideXml, layoutXml, slideSizeEmu)
+ *
+ * 슬라이드(또는 그 레이아웃)의 "이미지 박스"(텍스트 없는 큰 사각형 컨테이너) bbox를 찾는다.
+ * 가이드 덱은 좌측에 이미지 박스를 두고 그 안에 화면 이미지를 배치한다 —
+ * 구덱은 박스가 슬라이드 안에, 레이아웃 v2 덱은 slideLayout 에 있다(슬라이드 우선, 없으면 레이아웃).
+ * 이 박스를 그대로 크롭하면 그룹 파싱보다 안정적으로 "저자가 의도한 이미지 영역"이 나온다.
+ *
+ * @returns {array} [{ xFrac, yFrac, wFrac, hFrac }, ...] (슬라이드 비율 0~1)
+ */
+export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
+  if (!slideSizeEmu?.cx || !slideSizeEmu?.cy) return [];
+  for (const source of [slideXml, layoutXml]) {
+    if (!source) continue;
+    const boxes = [];
+    for (const m of source.matchAll(/<p:sp>([\s\S]*?)<\/p:sp>/g)) {
+      const sp = m[1];
+      const geom = sp.match(/<a:prstGeom prst="([^"]+)"/)?.[1] ?? '';
+      if (!/rect/i.test(geom)) continue;
+      const text = [...sp.matchAll(/<a:t>(.*?)<\/a:t>/g)].map((x) => x[1]).join('').trim();
+      if (text) continue; // 텍스트 있는 사각형은 컨테이너가 아니다
+      const x = firstNumber(sp, /<a:off[^>]*x="(-?\d+)"/);
+      const y = firstNumber(sp, /<a:off[^>]*y="(-?\d+)"/);
+      const cx = firstNumber(sp, /<a:ext[^>]*cx="(\d+)"/);
+      const cy = firstNumber(sp, /<a:ext[^>]*cy="(\d+)"/);
+      if (!cx || !cy) continue;
+      const wFrac = cx / slideSizeEmu.cx;
+      const hFrac = cy / slideSizeEmu.cy;
+      if (wFrac < 0.3 || hFrac < 0.3) continue; // 이미지 컨테이너 크기 미만은 장식/뱃지 — 스킵
+      boxes.push({
+        xFrac: Number((x / slideSizeEmu.cx).toFixed(6)),
+        yFrac: Number((y / slideSizeEmu.cy).toFixed(6)),
+        wFrac: Number(wFrac.toFixed(6)),
+        hFrac: Number(hFrac.toFixed(6)),
+      });
+    }
+    if (boxes.length) return boxes; // 슬라이드에서 찾으면 레이아웃은 안 본다
+  }
+  return [];
+}
+
+/**
+ * expandBoxWithPics(box, picsPercent)
+ *
+ * 저자가 이미지 박스 살짝 밖까지 이미지를 얹는 경우(우측 갤러리·하단 내비 등)가 있어,
+ * 박스와 "겹치는" 이미지들의 bbox 를 합집합으로 확장하고 소폭 패딩한다.
+ * (겹치지 않는 먼 이미지는 확장하지 않음 — 우측 텍스트 영역까지 끌려가는 것 방지)
+ *
+ * @param {object} box — { xFrac, yFrac, wFrac, hFrac }
+ * @param {array} picsPercent — parseSlideShapes 의 pics ({ bbox: {left,top,width,height} % , areaRatio })
+ */
+export function expandBoxWithPics(box, picsPercent) {
+  let x0 = box.xFrac, y0 = box.yFrac, x1 = box.xFrac + box.wFrac, y1 = box.yFrac + box.hFrac;
+  for (const p of picsPercent ?? []) {
+    if ((p.areaRatio ?? 0) < 0.005) continue; // 장식 아이콘 제외
+    const px0 = p.bbox.left / 100, py0 = p.bbox.top / 100;
+    const px1 = px0 + p.bbox.width / 100, py1 = py0 + p.bbox.height / 100;
+    const intersects = px0 < x1 && px1 > x0 && py0 < y1 && py1 > y0;
+    if (!intersects) continue;
+    x0 = Math.min(x0, px0); y0 = Math.min(y0, py0);
+    x1 = Math.max(x1, px1); y1 = Math.max(y1, py1);
+  }
+  const PAD = 0.008; // 0.8% 여백
+  x0 = Math.max(0, x0 - PAD); y0 = Math.max(0, y0 - PAD);
+  x1 = Math.min(1, x1 + PAD); y1 = Math.min(1, y1 + PAD);
+  return {
+    xFrac: Number(x0.toFixed(6)),
+    yFrac: Number(y0.toFixed(6)),
+    wFrac: Number((x1 - x0).toFixed(6)),
+    hFrac: Number((y1 - y0).toFixed(6)),
+  };
+}
+
+/**
  * parseGroupBoxes(slideXml, slideSizeEmu)
  *
  * 슬라이드 XML에서 최상위 그룹들의 bbox를 슬라이드 비율로 산출.

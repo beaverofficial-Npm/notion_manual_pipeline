@@ -873,15 +873,15 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
                 )}
 
                 {selectedFunction.slides.map((slide, slideIdx) => {
-                  // 페이지(슬라이드)별로: 그 페이지 본문 → 그 페이지 이미지 순으로 짝지어 보여준다.
+                  // 페이지(슬라이드)별로 짝지어 보여주되, 순서는 이미지 먼저 → 그 아래 본문 텍스트(발행과 동일).
                   const bakeAssets = slide.assets.filter((asset) => asset.kind === 'group_bake' && asset.signed_url);
                   const isLastSlide = slideIdx === selectedFunction.slides.length - 1;
                   return (
                     <div key={slide.id} style={styles.notionDoc}>
-                      {slide.blocks.length > 0 && <NotionBlocks blocks={slide.blocks} />}
                       {bakeAssets.map((asset) => (
                         <img key={asset.id} src={asset.signed_url || ''} alt={asset.label} style={styles.bakeImage} />
                       ))}
+                      {slide.blocks.length > 0 && <NotionBlocks blocks={slide.blocks} />}
                       {!isLastSlide && <div style={styles.divider} />}
                     </div>
                   );

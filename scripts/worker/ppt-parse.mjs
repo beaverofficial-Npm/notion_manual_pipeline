@@ -10,9 +10,8 @@ const DIGIT_ONLY_RE = /^\d{1,2}$/;
 const SENTENCE_END_RE = /(다|요|죠)\s*[.。]\s*$/;
 const GROUP_PREFIX_RE = /^\s*\d{1,2}(?:\s*-\s*\d{1,2})?\s*[.．]\s*/;
 const SUB_RE = /^\s*(?:[•·∙▪◦\-–]|\d+\s*-\s*\d+)\s*/;
-const TIP_INLINE_RE = /^\s*[*※]/;
+// 유의/참고 헤더 — 본문 보존 판별(isStrayLabel)에만 사용. 콜아웃 변환은 하지 않는다(원본 그대로 노출).
 const TIP_HEADER_RE = /^(유의사항|유의|참고사항|참고|주의사항|주의|TIP)\s*$/i;
-const TIP_WORD_RE = /^(유의사항|유의|참고|주의사항|주의|단,|TIP)/i;
 const NUMBER_ONLY_RE = /^0?\d{1,2}\s*[.．]?\s*$/;
 const TOC_RE = /목\s*차|contents/i;
 const COVER_RE = /이용\s*가이드|기본\s*메\s*[뉴유]\s*얼|전용\s*메\s*[뉴유]\s*얼|통합\s*가이드/;
@@ -265,27 +264,18 @@ export function buildFunctionBlocks(parsed, functionName) {
 
   const blocks = [];
   let currentStep = null;
-  let pendingTip = false;
 
   function pushChildOrTop(child) {
     if (currentStep) currentStep.children.push(child);
     else blocks.push({ kind: child.kind === 'bulleted' ? 'bulleted_list' : child.kind, text: child.text });
   }
 
+  // 유의/참고(※·유의사항 등)는 콜아웃으로 변환하지 않고 원본 텍스트 그대로 내보낸다.
+  // (콜아웃 변환 과정에서 빈 박스·내용 누락이 잦았음 — PPT에 보이는 그대로가 정답)
   for (const shape of bodyShapes) {
-    if (TIP_HEADER_RE.test(shape.text.trim()) && shape.paragraphs.length <= 1) {
-      pendingTip = true;
-      continue;
-    }
-
     for (const para of shape.paragraphs.flatMap((p) => splitInlineSteps(p))) {
       const t = para.trim();
       if (!t) continue;
-
-      if (pendingTip) {
-        blocks.push({ kind: 'callout', text: t });
-        continue;
-      }
 
       if (STEP_RE.test(t)) {
         const lead = t.match(/^\s*(\d{1,2})/);
@@ -300,15 +290,12 @@ export function buildFunctionBlocks(parsed, functionName) {
           children: [],
         };
         blocks.push(currentStep);
-      } else if (TIP_INLINE_RE.test(t) || TIP_WORD_RE.test(t)) {
-        pushChildOrTop({ kind: 'callout', text: t.replace(/^\s*[*※]\s*/, '').trim() });
       } else if (SUB_RE.test(t)) {
         pushChildOrTop({ kind: 'bulleted', text: t.replace(SUB_RE, '').trim() });
       } else {
         pushChildOrTop({ kind: 'paragraph', text: t });
       }
     }
-    pendingTip = false;
   }
 
   for (const table of parsed.tables) {
