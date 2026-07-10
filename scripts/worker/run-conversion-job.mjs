@@ -89,6 +89,17 @@ async function resolveJob(jobIdArg) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) throw new Error('No queued job.');
+  // 원자적 클레임: queued → running 전환에 성공한 프로세스만 처리한다.
+  // (여러 워커/로컬 프로세스가 같은 job 을 집어 이중 처리(중복 키)하는 레이스 방지)
+  const { data: claimed, error: claimError } = await supabase
+    .from('manual_conversion_jobs')
+    .update({ status: 'running', worker_id: 'claiming', started_at: new Date().toISOString() })
+    .eq('id', data.id)
+    .eq('status', 'queued')
+    .select('id')
+    .maybeSingle();
+  if (claimError) throw new Error(claimError.message);
+  if (!claimed) throw new Error('No queued job.'); // 다른 워커가 선점 — 다음 폴로
   return data;
 }
 
