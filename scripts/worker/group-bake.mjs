@@ -173,100 +173,54 @@ export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
 }
 
 /**
- * expandBoxWithPics(box, picsPercent)
+ * boxCaptureRect(box, parsed)
  *
- * 저자가 이미지 박스 살짝 밖까지 이미지를 얹는 경우(우측 갤러리·하단 내비 등)가 있어,
- * 박스와 "겹치는" 이미지들의 bbox 를 합집합으로 확장하고 소폭 패딩한다.
- * (겹치지 않는 먼 이미지는 확장하지 않음 — 우측 텍스트 영역까지 끌려가는 것 방지)
- *
- * @param {object} box — { xFrac, yFrac, wFrac, hFrac }
- * @param {array} picsPercent — parseSlideShapes 의 pics ({ bbox: {left,top,width,height} % , areaRatio })
- */
-/**
- * contentCropBox(box, parsed)
- *
- * 이미지 박스를 "스코프"로만 쓰고, 크롭은 콘텐츠에 딱 맞춘다:
- *  - 포함: 중심이 박스 안에 있는 이미지들 + 박스 안 어노테이션/짧은 라벨(뱃지·헤더칩)
- *  - 제외: 본문 텍스트 컬럼(중심이 박스 밖의 긴 텍스트) — 크롭이 닿지 않게 직전에서 클램프
- * 이렇게 해야 (a) 박스보다 작은 콘텐츠일 때 상하 빈 띠가 없고
- * (b) 박스 밖으로 삐져나온 이미지 때문에 본문 텍스트 조각이 딸려 들어오지 않는다.
+ * 확정 규칙(2026-07-13, docs/planning/BOX_CAPTURE_HANDOFF.md — 재논의 금지):
+ * 크롭 = **이미지박스 구간 그대로**. 콘텐츠 범위를 추정해 깎는 로직(콘텐츠 타이트·우측 클램프)은
+ * 시각 덩어리(스크린샷+콜아웃 박스+뱃지+화살표+말풍선)를 관통해 폐기했다.
+ * 단, 저자가 판 밖으로 살짝 얹는 요소가 잘리지 않게 박스와 "겹치는" 것만 합집합으로 포함한다:
+ *  - 겹치는 이미지(pics, areaRatio ≥ 0.005 — 장식 아이콘 제외)
+ *  - 겹치는 짧은 라벨 shape(텍스트 ≤ 20자 — 뱃지·헤더칩류; 본문 텍스트 컬럼은 길어서 제외됨)
+ * 프로덕션 워커와 테스트 하니스가 이 함수 하나를 같이 쓴다.
  *
  * @param {object} box — { xFrac, yFrac, wFrac, hFrac } (이미지 박스)
  * @param {object} parsed — parseSlideShapes 결과 ({ shapes, pics })
  * @returns {object} { xFrac, yFrac, wFrac, hFrac }
  */
-export function contentCropBox(box, parsed) {
-  const bx0 = box.xFrac * 100, by0 = box.yFrac * 100;
-  const bx1 = bx0 + box.wFrac * 100, by1 = by0 + box.hFrac * 100;
-  const centerIn = (bb) => {
-    const cx = bb.left + bb.width / 2, cy = bb.top + bb.height / 2;
-    return cx >= bx0 && cx <= bx1 && cy >= by0 && cy <= by1;
-  };
-
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+export function boxCaptureRect(box, parsed) {
+  let x0 = box.xFrac * 100, y0 = box.yFrac * 100;
+  let x1 = x0 + box.wFrac * 100, y1 = y0 + box.hFrac * 100;
+  const boxR = { l: x0, t: y0, r: x1, b: y1 };
+  const intersects = (bb) =>
+    bb.left < boxR.r && bb.left + bb.width > boxR.l && bb.top < boxR.b && bb.top + bb.height > boxR.t;
   const grow = (bb) => {
-    x0 = Math.min(x0, bb.left); y0 = Math.min(y0, bb.top);
-    x1 = Math.max(x1, bb.left + bb.width); y1 = Math.max(y1, bb.top + bb.height);
+    x0 = Math.min(x0, bb.left);
+    y0 = Math.min(y0, bb.top);
+    x1 = Math.max(x1, bb.left + bb.width);
+    y1 = Math.max(y1, bb.top + bb.height);
   };
-  for (const p of parsed.pics ?? []) {
-    if ((p.areaRatio ?? 0) < 0.005) continue;
-    if (centerIn(p.bbox)) grow(p.bbox);
+
+  for (const p of parsed?.pics ?? []) {
+    if ((p.areaRatio ?? 0) < 0.005) continue; // 장식 아이콘 제외
+    if (intersects(p.bbox)) grow(p.bbox);
   }
-  if (!Number.isFinite(x0)) {
-    // 박스 안 이미지가 없으면 박스 그대로
-    return box;
-  }
-  // 박스 안 어노테이션/짧은 라벨(숫자 뱃지·헤더칩 등)도 포함해 잘리지 않게 한다.
-  for (const s of parsed.shapes ?? []) {
+  for (const s of parsed?.shapes ?? []) {
     if (s.isGroupLabel) continue;
-    if (s.text.length > 20) continue; // 본문/설명문은 제외
-    if (!centerIn(s.bbox)) continue;
-    grow(s.bbox);
+    if (s.text.length > 20) continue; // 본문/설명문 컬럼은 확장 대상 아님
+    if (intersects(s.bbox)) grow(s.bbox);
   }
 
-  const PAD = 0.8; // %
-  x0 = Math.max(0, x0 - PAD); y0 = Math.max(0, y0 - PAD);
-  x1 = Math.min(100, x1 + PAD); y1 = Math.min(100, y1 + PAD);
-
-  // 본문 텍스트 컬럼(중심이 박스 밖의 긴 텍스트)에 크롭이 닿지 않게 우측 클램프
-  for (const s of parsed.shapes ?? []) {
-    if (s.isGroupLabel || s.text.length <= 20) continue;
-    const cx = s.bbox.left + s.bbox.width / 2, cy = s.bbox.top + s.bbox.height / 2;
-    const outside = !(cx >= bx0 && cx <= bx1 && cy >= by0 && cy <= by1);
-    if (outside && s.bbox.left > (bx0 + bx1) / 2 && s.bbox.left < x1) {
-      // 본문 shape 의 left 경계까지는 안전(글리프는 shape 안쪽에서 시작) — 저자가 텍스트 직전까지
-      // 붙여 그린 어노테이션(점선 말풍선 등)이 잘리지 않게 여유 없이 딱 맞춘다.
-      x1 = Math.max(x0 + 1, s.bbox.left);
-    }
-  }
+  const PAD = 0.8; // % 여백
+  x0 = Math.max(0, x0 - PAD);
+  y0 = Math.max(0, y0 - PAD);
+  x1 = Math.min(100, x1 + PAD);
+  y1 = Math.min(100, y1 + PAD);
 
   return {
     xFrac: Number((x0 / 100).toFixed(6)),
     yFrac: Number((y0 / 100).toFixed(6)),
     wFrac: Number(((x1 - x0) / 100).toFixed(6)),
     hFrac: Number(((y1 - y0) / 100).toFixed(6)),
-  };
-}
-
-export function expandBoxWithPics(box, picsPercent) {
-  let x0 = box.xFrac, y0 = box.yFrac, x1 = box.xFrac + box.wFrac, y1 = box.yFrac + box.hFrac;
-  for (const p of picsPercent ?? []) {
-    if ((p.areaRatio ?? 0) < 0.005) continue; // 장식 아이콘 제외
-    const px0 = p.bbox.left / 100, py0 = p.bbox.top / 100;
-    const px1 = px0 + p.bbox.width / 100, py1 = py0 + p.bbox.height / 100;
-    const intersects = px0 < x1 && px1 > x0 && py0 < y1 && py1 > y0;
-    if (!intersects) continue;
-    x0 = Math.min(x0, px0); y0 = Math.min(y0, py0);
-    x1 = Math.max(x1, px1); y1 = Math.max(y1, py1);
-  }
-  const PAD = 0.008; // 0.8% 여백
-  x0 = Math.max(0, x0 - PAD); y0 = Math.max(0, y0 - PAD);
-  x1 = Math.min(1, x1 + PAD); y1 = Math.min(1, y1 + PAD);
-  return {
-    xFrac: Number(x0.toFixed(6)),
-    yFrac: Number(y0.toFixed(6)),
-    wFrac: Number((x1 - x0).toFixed(6)),
-    hFrac: Number((y1 - y0).toFixed(6)),
   };
 }
 

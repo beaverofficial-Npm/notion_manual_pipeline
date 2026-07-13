@@ -12,7 +12,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { parseGroupBoxes, parseImageBoxes, contentCropBox, cropGroups } from './group-bake.mjs';
+import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, cropGroups } from './group-bake.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -428,9 +428,8 @@ export async function runOnce(jobIdArg) {
           //        빈 박스를 굽지 않도록 실제 이미지가 있는 슬라이드에서만 쓰고,
           //        박스 밖으로 살짝 넘친 이미지(우측 갤러리·하단 내비 등)는 합집합으로 포함해 잘림을 막는다.
           let boxes = hasRealPics ? parseImageBoxes(slideXml, await layoutXmlFor(entry), slideSize) : [];
-          // 박스는 스코프로만 쓰고 크롭은 콘텐츠(이미지+박스 안 뱃지/라벨)에 딱 맞춘다.
-          // 본문 텍스트 컬럼은 클램프로 배제 — 빈 띠·텍스트 조각 유입 방지.
-          boxes = boxes.map((b) => contentCropBox(b, parsed));
+          // 확정 규칙(BOX_CAPTURE_HANDOFF.md): 이미지박스 구간 그대로 + 판에 걸친 요소 합집합.
+          boxes = boxes.map((b) => boxCaptureRect(b, parsed));
           let labelOf = (i) => `이미지 박스${boxes.length > 1 ? ` ${i + 1}` : ''}`;
 
           // 2순위: 그룹(grpSp) bbox — 이미지 박스가 없는 덱의 기존 동작.
