@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-impress \
     poppler-utils \
     unzip \
+    zip \
     fonts-noto-cjk \
     fonts-noto-cjk-extra \
     fonts-nanum \

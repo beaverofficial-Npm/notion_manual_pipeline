@@ -225,6 +225,112 @@ export function boxCaptureRect(box, parsed) {
 }
 
 /**
+ * stripOutsideTextShapes(slideXml, box, slideSizeEmu)
+ *
+ * 크롭용 렌더에서 본문 텍스트를 "픽셀부터" 없애기 위해, 슬라이드 XML에서
+ * 이미지박스 밖의 **최상위** 텍스트 shape(<p:sp>)를 제거한 XML을 반환한다.
+ * (마스킹·클램프로는 저자가 본문 컬럼까지 걸쳐 그린 말풍선과 본문 글자를
+ *  같은 사각형 안에서 분리할 수 없음 — 텍스트를 렌더 전에 지우는 것이 유일한 무손실 해법.
+ *  본문 텍스트는 어차피 파서가 추출해 노션 텍스트 블록으로 들어간다.)
+ *
+ * 그룹(<p:grpSp>) 내부 shape 는 좌표가 그룹-로컬이라 판정 불가 + 시각 덩어리의
+ * 일부(말풍선·뱃지)이므로 절대 건드리지 않는다 — 깊이 추적으로 최상위만 제거.
+ *
+ * @param {string} slideXml — slide*.xml 원문
+ * @param {object} box — 이미지박스 { xFrac, yFrac, wFrac, hFrac }
+ * @param {object} slideSizeEmu — { cx, cy } (EMU)
+ * @returns {string|null} 제거된 XML (제거할 것이 없으면 null)
+ */
+export function stripOutsideTextShapes(slideXml, box, slideSizeEmu) {
+  if (!slideXml || !box || !slideSizeEmu?.cx || !slideSizeEmu?.cy) return null;
+  const treeMatch = slideXml.match(/<p:spTree[^>]*>[\s\S]*?<\/p:spTree>/);
+  if (!treeMatch) return null;
+  const tree = treeMatch[0];
+
+  const bx0 = box.xFrac * 100, by0 = box.yFrac * 100;
+  const bx1 = bx0 + box.wFrac * 100, by1 = by0 + box.hFrac * 100;
+
+  // 최상위 <p:sp> 만 수집(그룹 내부 제외) — grpSp 깊이 추적.
+  const tokenRe = /<p:grpSp\b[^>]*>|<\/p:grpSp>|<p:sp>[\s\S]*?<\/p:sp>/g;
+  let depth = 0;
+  const removals = [];
+  let token;
+  while ((token = tokenRe.exec(tree))) {
+    const t = token[0];
+    if (t.startsWith('<p:grpSp')) { depth += 1; continue; }
+    if (t.startsWith('</p:grpSp')) { depth -= 1; continue; }
+    if (depth !== 0) continue; // 그룹 내부 sp — 보호
+    // 텍스트 없는 도형(콜아웃 박스·화살표)은 시각요소 — 보호
+    const text = [...t.matchAll(/<a:t>(.*?)<\/a:t>/g)].map((m) => m[1]).join('').trim();
+    if (!text) continue;
+    const x = firstNumber(t, /<a:off[^>]*x="(-?\d+)"/);
+    const y = firstNumber(t, /<a:off[^>]*y="(-?\d+)"/);
+    const cx = firstNumber(t, /<a:ext[^>]*cx="(\d+)"/);
+    const cy = firstNumber(t, /<a:ext[^>]*cy="(\d+)"/);
+    const centerX = ((x + cx / 2) / slideSizeEmu.cx) * 100;
+    const centerY = ((y + cy / 2) / slideSizeEmu.cy) * 100;
+    const centerInside = centerX >= bx0 && centerX <= bx1 && centerY >= by0 && centerY <= by1;
+    if (centerInside) continue; // 박스 안 라벨(헤더칩 등)은 이미지의 일부 — 보호
+    removals.push(t);
+  }
+  if (!removals.length) return null;
+
+  let newTree = tree;
+  for (const block of removals) newTree = newTree.replace(block, '');
+  return slideXml.replace(tree, newTree);
+}
+
+/**
+ * extendCropRightByPixels(strippedPngPath, rect)
+ *
+ * 그룹 안 요소(말풍선 등)는 좌표가 그룹-로컬이라 XML 로는 오른끝을 알 수 없다.
+ * 본문 텍스트가 제거된 "스트립 렌더"에서 크롭 우측 바깥을 픽셀 스캔해,
+ * 크롭 경계에 이어져 있는 비백색 콘텐츠(점선 테두리 등)까지 크롭을 확장한다.
+ * (스트립 렌더 전제 — 본문 글자가 없으므로 확장해도 텍스트가 딸려올 수 없음.
+ *  1.5% 이상 흰 공백이 나오면 중단해 멀리 있는 장식은 끌려오지 않음. 최대 +8%.)
+ *
+ * @param {string} strippedPngPath — 본문 제거 렌더 PNG
+ * @param {object} rect — 현재 크롭 { xFrac, yFrac, wFrac, hFrac }
+ * @returns {object} 확장된 rect
+ */
+export async function extendCropRightByPixels(strippedPngPath, rect) {
+  const meta = await sharp(strippedPngPath).metadata();
+  const W = meta.width ?? 0, H = meta.height ?? 0;
+  if (!W || !H) return rect;
+  const rectR = Math.round((rect.xFrac + rect.wFrac) * W);
+  // 크롭 경계 안쪽 1.5%부터 바깥 +8%까지 스캔 — "경계에 딱 붙은" 콘텐츠(점선 오른변 등)도 잡는다.
+  const x0 = Math.max(0, rectR - Math.round(0.015 * W));
+  const extW = Math.min(W - x0, Math.round(0.095 * W));
+  if (extW <= 2) return rect;
+  const y0 = Math.max(0, Math.round(rect.yFrac * H));
+  const extH = Math.max(1, Math.min(H - y0, Math.round(rect.hFrac * H)));
+
+  const buf = await sharp(strippedPngPath)
+    .extract({ left: x0, top: y0, width: extW, height: extH })
+    .greyscale()
+    .raw()
+    .toBuffer();
+
+  const maxGap = Math.max(2, Math.round(0.015 * W));
+  let gap = 0;
+  let last = -1;
+  for (let x = 0; x < extW; x += 1) {
+    let has = false;
+    for (let y = 0; y < extH; y += 1) {
+      if (buf[y * extW + x] < 245) { has = true; break; }
+    }
+    if (has) { last = x; gap = 0; }
+    else { gap += 1; if (gap > maxGap) break; }
+  }
+  if (last < 0) return rect;
+
+  // 마지막 콘텐츠 열 뒤에 0.7% 숨통을 보장(경계에 붙은 테두리가 잘려 보이지 않게)
+  const newR = Math.min(1, (x0 + last + 1) / W + 0.007);
+  if (newR <= rect.xFrac + rect.wFrac) return rect;
+  return { ...rect, wFrac: Number((newR - rect.xFrac).toFixed(6)) };
+}
+
+/**
  * parseGroupBoxes(slideXml, slideSizeEmu)
  *
  * 슬라이드 XML에서 최상위 그룹들의 bbox를 슬라이드 비율로 산출.

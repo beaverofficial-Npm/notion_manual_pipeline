@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -12,7 +12,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, cropGroups } from './group-bake.mjs';
+import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, stripOutsideTextShapes, extendCropRightByPixels, cropGroups } from './group-bake.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -375,10 +375,9 @@ export async function runOnce(jobIdArg) {
     const conversionMode = task.conversion_mode ?? 'capture';
 
     const pptPath = await downloadSource(sourceFile, tmpDir);
-    const [presentationXml, slideEntries, renderedSlides] = await Promise.all([
+    const [presentationXml, slideEntries] = await Promise.all([
       unzipText(pptPath, 'ppt/presentation.xml'),
       unzipSlideList(pptPath),
-      renderSlides(pptPath, tmpDir),
     ]);
 
     const slideSize = {
@@ -402,12 +401,54 @@ export async function runOnce(jobIdArg) {
       }
     }
 
+    // (group_bake) 크롭용 스트립 렌더: 이미지박스 밖 본문 텍스트 shape 를 XML 에서 제거한
+    // 사본 PPTX 를 만들어 따로 렌더한다 — 크롭 안에 본문 글자가 픽셀로도 존재하지 않게.
+    // (마스킹/클램프로는 본문 컬럼까지 걸쳐 그린 말풍선과 본문 글자를 분리할 수 없음)
+    const slideXmlByEntry = new Map();
+    let strippedRendered = null;
+    if (conversionMode === 'group_bake') {
+      try {
+        const modified = [];
+        for (const entry of slideEntries) {
+          const xml = await unzipText(pptPath, entry);
+          slideXmlByEntry.set(entry, xml);
+          const preParsed = parseSlideShapes(xml, slideSize);
+          if (!preParsed.pics.some((p) => p.areaRatio >= 0.005)) continue;
+          const rawBoxes = parseImageBoxes(xml, await layoutXmlFor(entry), slideSize);
+          if (!rawBoxes.length) continue;
+          const stripped = stripOutsideTextShapes(xml, rawBoxes[0], slideSize);
+          if (stripped) modified.push({ entry, xml: stripped });
+        }
+        if (modified.length) {
+          const stageDir = path.join(tmpDir, 'strip-src');
+          for (const m of modified) {
+            await mkdir(path.dirname(path.join(stageDir, m.entry)), { recursive: true });
+            await writeFile(path.join(stageDir, m.entry), m.xml);
+          }
+          const strippedPpt = path.join(tmpDir, 'stripped.pptx');
+          await copyFile(pptPath, strippedPpt);
+          await execFileAsync('zip', ['-q', strippedPpt, ...modified.map((m) => m.entry)], {
+            cwd: stageDir,
+            maxBuffer: 1024 * 1024 * 64,
+          });
+          const stripRenderDir = path.join(tmpDir, 'strip-render');
+          await mkdir(stripRenderDir, { recursive: true });
+          strippedRendered = await renderSlides(strippedPpt, stripRenderDir);
+        }
+      } catch (error) {
+        console.warn('[group-bake] 스트립 렌더 실패 — 원본 렌더로 크롭:', error instanceof Error ? error.message : String(error));
+        strippedRendered = null;
+      }
+    }
+
+    const renderedSlides = await renderSlides(pptPath, tmpDir);
+
     // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
     // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 이미지박스→그룹→영역 베이킹)
     const parsedSlides = [];
     for (const entry of slideEntries) {
       const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
-      const slideXml = await unzipText(pptPath, entry);
+      const slideXml = slideXmlByEntry.get(entry) ?? (await unzipText(pptPath, entry));
       const parsed = parseSlideShapes(slideXml, slideSize);
       const role = classifyRole(parsed, slideNumber);
       const section = role === 'section' ? extractSection(parsed) : null;
@@ -427,9 +468,9 @@ export async function runOnce(jobIdArg) {
           // 1순위: 이미지 박스(슬라이드/레이아웃의 이미지 컨테이너) 기준 크롭.
           //        빈 박스를 굽지 않도록 실제 이미지가 있는 슬라이드에서만 쓰고,
           //        박스 밖으로 살짝 넘친 이미지(우측 갤러리·하단 내비 등)는 합집합으로 포함해 잘림을 막는다.
-          let boxes = hasRealPics ? parseImageBoxes(slideXml, await layoutXmlFor(entry), slideSize) : [];
+          const rawImageBoxes = hasRealPics ? parseImageBoxes(slideXml, await layoutXmlFor(entry), slideSize) : [];
           // 확정 규칙(BOX_CAPTURE_HANDOFF.md): 이미지박스 구간 그대로 + 판에 걸친 요소 합집합.
-          boxes = boxes.map((b) => boxCaptureRect(b, parsed));
+          let boxes = rawImageBoxes.map((b) => boxCaptureRect(b, parsed));
           let labelOf = (i) => `이미지 박스${boxes.length > 1 ? ` ${i + 1}` : ''}`;
 
           // 2순위: 그룹(grpSp) bbox — 이미지 박스가 없는 덱의 기존 동작.
@@ -452,7 +493,15 @@ export async function runOnce(jobIdArg) {
           }
 
           if (boxes.length > 0 && localRender) {
-            const croppedPaths = await cropGroups(localRender, boxes, tmpDir, slideNumber);
+            // 이미지박스 경로: 본문 텍스트가 제거된 스트립 렌더에서 크롭 —
+            // 말풍선 등 시각요소 무손실 + 본문 글자 조각 0.
+            const strippedForSlide = rawImageBoxes.length > 0 ? strippedRendered?.[slideNumber - 1] : null;
+            const renderForCrop = strippedForSlide || localRender;
+            if (strippedForSlide) {
+              // 그룹-로컬 좌표라 못 잡는 요소(말풍선 오른변 등)를 픽셀 스캔으로 포함
+              boxes = await Promise.all(boxes.map((b) => extendCropRightByPixels(strippedForSlide, b)));
+            }
+            const croppedPaths = await cropGroups(renderForCrop, boxes, tmpDir, slideNumber);
             screenshots = croppedPaths.map((croppedPath, index) => ({
               label: labelOf(index),
               bbox: null, // 구워진 이미지라 crop_box 불필요
