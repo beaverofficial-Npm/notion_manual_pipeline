@@ -61,22 +61,31 @@ export async function GET(_request: Request, context: RouteContext) {
     assetRows = assets ?? [];
   }
 
-  // 렌더 signed URL
+  // 렌더 signed URL — 슬라이드마다 순차 호출하면 큰 덱(100장+)에서 30초+ 걸려 타임아웃났음.
+  // Storage 배치 API(createSignedUrls)로 한 번에 서명한다.
   const signedUrlByPath = new Map<string, string>();
-  for (const renderPath of slideRows.map((slide) => slide.render_path).filter(Boolean) as string[]) {
-    const { data } = await supabase.storage.from(RENDER_BUCKET).createSignedUrl(renderPath, 60 * 30);
-    if (data?.signedUrl) signedUrlByPath.set(renderPath, data.signedUrl);
+  const renderPaths = [...new Set(slideRows.map((slide) => slide.render_path).filter(Boolean) as string[])];
+  if (renderPaths.length) {
+    const { data } = await supabase.storage.from(RENDER_BUCKET).createSignedUrls(renderPaths, 60 * 30);
+    for (const item of data ?? []) {
+      if (item.signedUrl && item.path) signedUrlByPath.set(item.path, item.signedUrl);
+    }
   }
 
-  // group_bake 에셋의 storage_path를 signed URL로 변환 (lazy batch)
+  // group_bake 에셋 signed URL — 동일하게 배치 서명.
   const signedUrlByAssetStoragePath = new Map<string, string>();
-  const assetStoragePaths = assetRows
-    .filter((asset) => asset.storage_path && asset.kind === 'group_bake')
-    .map((asset) => asset.storage_path as string);
-
-  for (const storagePath of assetStoragePaths) {
-    const { data } = await supabase.storage.from(ASSET_BUCKET).createSignedUrl(storagePath, 60 * 30);
-    if (data?.signedUrl) signedUrlByAssetStoragePath.set(storagePath, data.signedUrl);
+  const assetStoragePaths = [
+    ...new Set(
+      assetRows
+        .filter((asset) => asset.storage_path && asset.kind === 'group_bake')
+        .map((asset) => asset.storage_path as string),
+    ),
+  ];
+  if (assetStoragePaths.length) {
+    const { data } = await supabase.storage.from(ASSET_BUCKET).createSignedUrls(assetStoragePaths, 60 * 30);
+    for (const item of data ?? []) {
+      if (item.signedUrl && item.path) signedUrlByAssetStoragePath.set(item.path, item.signedUrl);
+    }
   }
 
   const assetsBySlide = new Map<string, Array<typeof assetRows[number] & { signed_url?: string | null }>>();

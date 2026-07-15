@@ -177,18 +177,21 @@ export async function listManualProjects(): Promise<ManualProject[]> {
   const slideIds = slideRows.map((slide) => slide.id);
   let assetRows: ManualAssetRow[] = [];
 
+  // slide_id 를 한 번에 .in() 하면 수백 개일 때 URL 이 거대해져 매우 느리거나 실패했음.
+  // 200개씩 청크로 나눠 병렬 조회한다.
   if (slideIds.length > 0) {
-    const { data: assets, error: assetError } = await supabase
-      .from('manual_assets')
-      .select('id,slide_id,kind,label,confidence')
-      .in('slide_id', slideIds)
-      .order('created_at');
-
-    if (assetError) {
-      throw new Error(assetError.message);
+    const CHUNK = 200;
+    const chunks: string[][] = [];
+    for (let i = 0; i < slideIds.length; i += CHUNK) chunks.push(slideIds.slice(i, i + CHUNK));
+    const results = await Promise.all(
+      chunks.map((ids) =>
+        supabase.from('manual_assets').select('id,slide_id,kind,label,confidence').in('slide_id', ids),
+      ),
+    );
+    for (const { data, error } of results) {
+      if (error) throw new Error(error.message);
+      assetRows.push(...((data ?? []) as ManualAssetRow[]));
     }
-
-    assetRows = (assets ?? []) as ManualAssetRow[];
   }
 
   // 발행된 노션 페이지(task 매핑). 가장 최근 발행 페이지를 task 별로 1건 보관한다.
