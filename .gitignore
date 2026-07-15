@@ -15,3 +15,4 @@ supabase/.temp
 # 대용량 소스 PPT(원본은 Supabase Storage/로컬 보관) — 저장소 비대화 방지
 docs/*.pptx
 docs/*.ppt
+.env.staging

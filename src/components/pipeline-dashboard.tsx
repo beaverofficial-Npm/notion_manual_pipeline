@@ -585,19 +585,31 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     setConvStatus(null);
     setConvWatch({ taskId: '', title: selectedFile.name });
 
-    const formData = new FormData();
-    formData.append('file', selectedFile);
-    formData.append('mode', 'group_bake'); // 자동 추출 단일(레거시 캡쳐 제거)
-
     try {
+      // 1) 서버에 업로드 URL 요청(파일은 아직 보내지 않는다 — presigned 직접 업로드 방식).
       const response = await fetch('/api/tasks', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: selectedFile.name, fileSize: selectedFile.size, mode: 'group_bake' }),
       });
-      const result = (await response.json()) as Partial<TaskCreateResult> & { message?: string };
+      const result = (await response.json()) as Partial<TaskCreateResult> & {
+        uploadUrl?: string;
+        contentType?: string;
+        message?: string;
+      };
 
-      if (!response.ok || !result.project) {
+      if (!response.ok || !result.project || !result.uploadUrl) {
         throw new Error(result.message ?? '변환 작업을 시작하지 못했습니다.');
+      }
+
+      // 2) 원본 PPT 를 R2 에 직접 PUT — 우리 서버를 거치지 않아 50MB 한도·서버 부하와 무관하다.
+      const putResponse = await fetch(result.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': result.contentType ?? 'application/octet-stream' },
+        body: selectedFile,
+      });
+      if (!putResponse.ok) {
+        throw new Error('원본 PPT 업로드에 실패했습니다(스토리지).');
       }
 
       const createdProject = result.project as ManualProject;

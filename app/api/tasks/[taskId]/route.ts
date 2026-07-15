@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { deleteSources } from '@/lib/storage/source-storage';
 
 interface RouteContext {
   params: Promise<{
@@ -101,10 +102,8 @@ export async function DELETE(_request: Request, context: RouteContext) {
     }
 
     await Promise.all([
-      removeStoragePaths(
-        'manual-source',
-        (sources ?? []).map((source) => source.storage_path).filter(Boolean) as string[],
-      ),
+      // 원본 PPT 는 R2 에 있으므로 R2 에서 지운다(렌더/에셋/매니페스트는 그대로 Supabase Storage).
+      deleteSources((sources ?? []).map((source) => source.storage_path).filter(Boolean) as string[]),
       removeStoragePaths(
         'manual-renders',
         slideRows.map((slide) => slide.render_path).filter(Boolean) as string[],

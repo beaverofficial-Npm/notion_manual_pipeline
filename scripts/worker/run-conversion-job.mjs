@@ -13,6 +13,7 @@ import {
   screenshotCandidates,
 } from './ppt-parse.mjs';
 import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, stripOutsideTextShapes, extendCropRightByPixels, cropGroups } from './group-bake.mjs';
+import { downloadSource as downloadSourceFromR2 } from './source-storage.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -20,7 +21,6 @@ const tmpRoot = path.join(repoRoot, '.tmp', 'worker');
 const soffice = process.env.SOFFICE_BIN ?? '/opt/homebrew/bin/soffice';
 const pdftoppm = process.env.PDFTOPPM_BIN ?? '/opt/homebrew/bin/pdftoppm';
 const pdfinfo = process.env.PDFINFO_BIN ?? 'pdfinfo';
-const SOURCE_BUCKET = 'manual-source';
 const RENDER_BUCKET = 'manual-renders';
 const MANIFEST_BUCKET = 'manual-manifests';
 const ASSETS_BUCKET = 'manual-assets';
@@ -104,10 +104,9 @@ async function resolveJob(jobIdArg) {
 }
 
 async function downloadSource(sourceFile, tmpDir) {
-  const { data, error } = await supabase.storage.from(SOURCE_BUCKET).download(sourceFile.storage_path);
-  if (error || !data) throw new Error(error?.message ?? 'Source download failed.');
+  const buffer = await downloadSourceFromR2(sourceFile.storage_path);
   const filePath = path.join(tmpDir, sourceFile.file_name);
-  await writeFile(filePath, Buffer.from(await data.arrayBuffer()));
+  await writeFile(filePath, buffer);
   return filePath;
 }
 
