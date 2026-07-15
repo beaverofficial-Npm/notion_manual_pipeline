@@ -87,9 +87,23 @@ export async function storeCroppedAsset(taskId: string, assetId: string, buffer:
   return storagePath;
 }
 
+// 노션 rate limit(429)·일시적 5xx 는 몇 번 재시도한다(동시 업로드 시 필수).
+async function notionFetchWithRetry(url: string, init: RequestInit, tries = 4): Promise<Response> {
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < tries; attempt += 1) {
+    const res = await fetch(url, init);
+    if (res.status !== 429 && res.status < 500) return res;
+    lastStatus = res.status;
+    const retryAfter = Number(res.headers.get('retry-after'));
+    const waitMs = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt;
+    await new Promise((r) => setTimeout(r, Math.min(waitMs, 8000)));
+  }
+  throw new Error(`노션 요청 반복 실패 (마지막 상태 ${lastStatus})`);
+}
+
 // 노션 네이티브 파일 업로드(3단계). 만료 없는 첨부 id 를 반환한다.
 export async function uploadImageToNotion(token: string, buffer: Buffer, filename: string): Promise<string> {
-  const createResponse = await fetch('https://api.notion.com/v1/file_uploads', {
+  const createResponse = await notionFetchWithRetry('https://api.notion.com/v1/file_uploads', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -106,7 +120,7 @@ export async function uploadImageToNotion(token: string, buffer: Buffer, filenam
   const form = new FormData();
   form.append('file', new Blob([new Uint8Array(buffer)], { type: 'image/png' }), filename);
 
-  const sendResponse = await fetch(`https://api.notion.com/v1/file_uploads/${created.id}/send`, {
+  const sendResponse = await notionFetchWithRetry(`https://api.notion.com/v1/file_uploads/${created.id}/send`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

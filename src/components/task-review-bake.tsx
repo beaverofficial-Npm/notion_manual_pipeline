@@ -720,10 +720,11 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
       return;
     }
 
-    try {
-      setIsPublishingInProgress(true);
-      setPublishError(null);
+    setIsPublishingInProgress(true);
+    setPublishError(null);
+    let hadError = false;
 
+    try {
       // 제외된 함수 목록 빌드
       const excludedFnIds = tree
         .flatMap((cat) => cat.functions)
@@ -737,7 +738,16 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
       });
 
       if (!response.ok) {
-        throw new Error('발행 요청 실패');
+        // 409(이미 발행 중) 등 — 서버가 준 메시지를 그대로 보여준다.
+        let msg = `발행 요청 실패 (${response.status})`;
+        try {
+          const parsed = JSON.parse((await response.text()).trim().split('\n')[0] || '{}');
+          if (parsed.message) msg = parsed.message;
+        } catch {
+          /* noop */
+        }
+        setPublishError(msg);
+        return; // 모달은 열어둔 채 에러 표시
       }
 
       // NDJSON 스트림 처리
@@ -757,18 +767,28 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
 
         for (const line of lines) {
           if (!line) continue;
-          const event = JSON.parse(line);
-          if (event.type === 'error') {
-            setPublishError(event.message);
+          try {
+            const event = JSON.parse(line);
+            if (event.type === 'error') {
+              hadError = true;
+              setPublishError(event.message ?? '발행 중 오류가 발생했습니다.');
+            }
+          } catch {
+            /* 부분 라인 무시 */
           }
         }
       }
 
+      if (hadError) return; // 에러가 있었으면 모달 열어둔 채 종료(성공 토스트 X)
       message.success('발행 완료');
-      setIsPublishingInProgress(false);
+      setIsPublishingInProgress(false); // 성공했을 때만 닫는다
     } catch (err) {
-      setPublishError(err instanceof Error ? err.message : '발행 중 오류 발생');
-      setIsPublishingInProgress(false);
+      // 연결 끊김·타임아웃 등 — 모달을 닫지 않고 에러를 명확히 남긴다.
+      setPublishError(
+        err instanceof Error
+          ? `발행이 중단됐습니다: ${err.message}. (큰 덱은 시간이 걸릴 수 있어요 — 잠시 후 다시 시도)`
+          : '발행이 중단됐습니다. 잠시 후 다시 시도해 주세요.',
+      );
     }
   }
 
@@ -992,12 +1012,21 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
       {/* Publishing progress modal */}
       <Modal
         open={isPublishingInProgress}
-        onClose={() => setIsPublishingInProgress(false)}
-        title="노션 발행 중"
+        onClose={() => {
+          setIsPublishingInProgress(false);
+          setPublishError(null);
+        }}
+        title={publishError ? '노션 발행 실패' : '노션 발행 중'}
         size="sm"
         footer={
-          <Button variant="default" onClick={() => setIsPublishingInProgress(false)}>
-            취소
+          <Button
+            variant="default"
+            onClick={() => {
+              setIsPublishingInProgress(false);
+              setPublishError(null);
+            }}
+          >
+            {publishError ? '닫기' : '취소'}
           </Button>
         }
       >

@@ -376,6 +376,19 @@ export interface PublishProgress {
   label: string;
 }
 
+// 제한된 동시성으로 병렬 실행(노션 rate limit 고려해 소수 동시).
+async function runPool<T>(items: T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor;
+      cursor += 1;
+      await worker(items[i], i);
+    }
+  });
+  await Promise.all(runners);
+}
+
 export async function publishTaskToNotion(taskId: string, onProgress?: (p: PublishProgress) => void, signal?: AbortSignal) {
   const token = requireNotionToken();
   const supabase = createServiceSupabaseClient();
@@ -408,6 +421,48 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
     let functionCount = 0;
     let imageCount = 0;
 
+    // 이미지를 미리 병렬 업로드해 fileUploadId 를 확보한다.
+    // 순차로 수백 장을 올리면 함수 사이 진행신호 공백이 프록시 idle 타임아웃(~60초)을 넘겨
+    // 스트림이 끊기고 발행이 먹통이 됐음. 병렬 + 장당 진행신호로 (a) 빠르고 (b) 연결이 안 끊긴다.
+    const imageJobs: Array<{ asset: AssetRow; slide: SlideRow }> = [];
+    for (const category of data.categories) {
+      const fns = (data.functionsByCategory.get(category.id) ?? []).filter(
+        (fn) => (data.slidesByFunction.get(fn.id) ?? []).length > 0,
+      );
+      for (const fn of fns) {
+        for (const slide of data.slidesByFunction.get(fn.id) ?? []) {
+          for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
+            if (asset.storage_path || (asset.crop_box && slide.render_path)) imageJobs.push({ asset, slide });
+          }
+        }
+      }
+    }
+    const uploadedByAssetId = new Map<string, string>();
+    const renderCache = new Map<string, Buffer>();
+    let uploadedCount = 0;
+    await runPool(imageJobs, 6, async ({ asset, slide }) => {
+      if (signal?.aborted) return;
+      let buffer: Buffer | null = null;
+      if (asset.storage_path) {
+        buffer = await loadAsset(asset.storage_path);
+      } else if (asset.crop_box && slide.render_path) {
+        let rb = renderCache.get(slide.render_path);
+        if (!rb) {
+          rb = await loadRender(slide.render_path);
+          renderCache.set(slide.render_path, rb);
+        }
+        buffer = await cropRender(rb, asset.crop_box);
+        await storeCroppedAsset(taskId, asset.id, buffer);
+      }
+      if (!buffer) return;
+      buffer = await resizeForPublish(buffer);
+      const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
+      uploadedByAssetId.set(asset.id, fileUploadId);
+      uploadedCount += 1;
+      report(`이미지 업로드 ${uploadedCount}/${imageJobs.length}`);
+    });
+    if (signal?.aborted) throw new Error('CANCELLED');
+
     // 한 장의 매뉴얼 페이지로 구성한다(서브페이지 깊이 이동 없음).
     // 카테고리 heading_1 → 기능 heading_2 → 내용/이미지 순으로 평면 배치한다.
     // 헤딩이 있으면 노션이 우측 사이드 아웃라인(목차)을 자동으로 띄우므로, 본문 앞단의 목차 블록은 넣지 않는다.
@@ -432,23 +487,11 @@ export async function publishTaskToNotion(taskId: string, onProgress?: (p: Publi
 
         const slides = data.slidesByFunction.get(fn.id) ?? [];
         // 페이지(슬라이드)별로 짝지어 배치하되, 순서는 이미지 먼저 → 그 아래 본문 텍스트.
+        // 이미지는 위에서 이미 병렬 업로드했으므로 여기선 fileUploadId 를 참조만 한다(빠름).
         for (const slide of slides) {
-          const assets = data.assetsBySlide.get(slide.id) ?? [];
-          let renderBuffer: Buffer | null = null; // capture 모드에서만 lazy 로드
-          for (const asset of assets) {
-            let buffer: Buffer | null = null;
-            if (asset.storage_path) {
-              // group_bake: 이미 구워진 이미지를 그대로 노션에 올린다
-              buffer = await loadAsset(asset.storage_path);
-            } else if (asset.crop_box && slide.render_path) {
-              // capture: 렌더에서 crop 후 업로드
-              if (!renderBuffer) renderBuffer = await loadRender(slide.render_path);
-              buffer = await cropRender(renderBuffer, asset.crop_box);
-              await storeCroppedAsset(taskId, asset.id, buffer);
-            }
-            if (!buffer) continue;
-            buffer = await resizeForPublish(buffer); // 노션 발행 이미지 ~75% 축소
-            const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
+          for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
+            const fileUploadId = uploadedByAssetId.get(asset.id);
+            if (!fileUploadId) continue;
             children.push(imageBlock(fileUploadId));
             imageCount += 1;
           }

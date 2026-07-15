@@ -46,6 +46,24 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
+  // 중복 발행 방어: 이 작업에 이미 진행 중(running)인 발행이 있으면 새로 시작하지 않는다.
+  // (팝업이 실패처럼 닫혀 재클릭이 반복되면 발행이 겹쳐 서버가 터졌음.)
+  const staleCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: activeRun } = await supabase
+    .from('manual_publish_runs')
+    .select('id,started_at')
+    .eq('task_id', taskId)
+    .eq('status', 'running')
+    .gt('started_at', staleCutoff)
+    .limit(1)
+    .maybeSingle();
+  if (activeRun) {
+    return new Response(
+      JSON.stringify({ type: 'error', message: '이미 발행이 진행 중입니다. 잠시만 기다려 주세요.' }) + '\n',
+      { status: 409, headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' } },
+    );
+  }
+
   const encoder = new TextEncoder();
   const abort = new AbortController();
   request.signal.addEventListener('abort', () => abort.abort());
