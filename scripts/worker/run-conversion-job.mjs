@@ -441,7 +441,9 @@ export async function runOnce(jobIdArg) {
       }
     }
 
-    const renderedSlides = await renderSlides(pptPath, tmpDir);
+    // 렌더는 덱당 1회만: group_bake 에서 스트립 렌더가 만들어졌으면 그것을 크롭·표시 겸용으로 쓴다.
+    // (렌더 2회는 웹+워커 단일 컨테이너에서 CPU 를 포화시켜 웹까지 마비시켰음)
+    const renderedSlides = strippedRendered ?? (await renderSlides(pptPath, tmpDir));
 
     // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
     // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 이미지박스→그룹→영역 베이킹)
@@ -495,13 +497,12 @@ export async function runOnce(jobIdArg) {
           if (boxes.length > 0 && localRender) {
             // 이미지박스 경로: 본문 텍스트가 제거된 스트립 렌더에서 크롭 —
             // 말풍선 등 시각요소 무손실 + 본문 글자 조각 0.
-            const strippedForSlide = rawImageBoxes.length > 0 ? strippedRendered?.[slideNumber - 1] : null;
-            const renderForCrop = strippedForSlide || localRender;
-            if (strippedForSlide) {
+            if (rawImageBoxes.length > 0 && strippedRendered) {
               // 그룹-로컬 좌표라 못 잡는 요소(말풍선 오른변 등)를 픽셀 스캔으로 포함
-              boxes = await Promise.all(boxes.map((b) => extendCropRightByPixels(strippedForSlide, b)));
+              // (렌더가 스트립본일 때만 — 본문 텍스트가 남아있으면 스캔이 텍스트까지 확장함)
+              boxes = await Promise.all(boxes.map((b) => extendCropRightByPixels(localRender, b)));
             }
-            const croppedPaths = await cropGroups(renderForCrop, boxes, tmpDir, slideNumber);
+            const croppedPaths = await cropGroups(localRender, boxes, tmpDir, slideNumber);
             screenshots = croppedPaths.map((croppedPath, index) => ({
               label: labelOf(index),
               bbox: null, // 구워진 이미지라 crop_box 불필요
