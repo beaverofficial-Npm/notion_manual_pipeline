@@ -41,6 +41,19 @@ export async function POST(_request: Request, context: RouteContext) {
     return NextResponse.json({ message: '이미 실행 중인 작업입니다.' }, { status: 409 });
   }
 
+  // 큐 폭주 방어: 이 작업에 이미 대기/실행 중인 변환 job 이 있으면 새로 만들지 않는다.
+  // (fetch 실패로 재클릭이 반복되면 같은 작업에 job 이 수십 개 쌓여 컨테이너를 마비시켰음)
+  const { data: activeJob } = await supabase
+    .from('manual_conversion_jobs')
+    .select('id')
+    .eq('task_id', taskId)
+    .in('status', ['queued', 'running'])
+    .limit(1)
+    .maybeSingle();
+  if (activeJob) {
+    return NextResponse.json({ message: '이미 변환이 진행/대기 중입니다.' }, { status: 409 });
+  }
+
   const { data: sourceFile, error: sourceError } = await supabase
     .from('manual_source_files')
     .select('id')
