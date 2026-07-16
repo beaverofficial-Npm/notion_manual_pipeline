@@ -1,5 +1,6 @@
 import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { selectInChunks } from '@/lib/supabase/chunked';
 import { cropRender, loadAsset, loadRender, resizeForPublish, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
 
 const NOTION_VERSION = '2022-06-28';
@@ -255,16 +256,15 @@ async function fetchPublishData(taskId: string): Promise<FetchResult> {
 
   const slideRows = (slides ?? []) as SlideRow[];
   const slideIds = slideRows.map((slide) => slide.id);
-  let assetRows: AssetRow[] = [];
-  if (slideIds.length) {
-    const { data: assets } = await supabase
+  // .in() 한 방은 큰 덱(200장+)에서 "URI too long" 으로 빈 결과가 됨 → 청크 조회.
+  const assetRows = await selectInChunks<AssetRow>(slideIds, (chunk) =>
+    supabase
       .from('manual_assets')
       .select('id,slide_id,label,crop_box,storage_path,review_status')
-      .in('slide_id', slideIds)
+      .in('slide_id', chunk)
       .neq('review_status', 'excluded')
-      .order('created_at');
-    assetRows = (assets ?? []) as AssetRow[];
-  }
+      .order('created_at'),
+  );
 
   const functionsByCategory = new Map<string, FunctionRow[]>();
   for (const fn of (functions ?? []) as FunctionRow[]) {
@@ -313,17 +313,32 @@ export async function buildPublishPreview(taskId: string) {
   const supabase = createServiceSupabaseClient();
   const data = await fetchPublishData(taskId);
 
-  // 이미지 미리보기를 위한 렌더 signed URL
+  // 이미지 미리보기용 signed URL — 두 종류를 배치 서명한다(순차 서명은 큰 덱에서 타임아웃 병력).
+  //  - capture(레거시): 렌더 PNG + crop_box → manual-renders
+  //  - group_bake(현행): 이미 구워진 에셋 PNG(storage_path) → manual-assets
   const renderPaths = new Set<string>();
+  const assetPaths = new Set<string>();
   for (const slides of data.slidesByFunction.values()) {
     for (const slide of slides) {
-      if (slide.render_path && (data.assetsBySlide.get(slide.id)?.length ?? 0) > 0) renderPaths.add(slide.render_path);
+      for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
+        if (asset.storage_path) assetPaths.add(asset.storage_path);
+        else if (asset.crop_box && slide.render_path) renderPaths.add(slide.render_path);
+      }
     }
   }
   const signedUrlByPath = new Map<string, string>();
-  for (const renderPath of renderPaths) {
-    const { data: signed } = await supabase.storage.from('manual-renders').createSignedUrl(renderPath, 60 * 30);
-    if (signed?.signedUrl) signedUrlByPath.set(renderPath, signed.signedUrl);
+  if (renderPaths.size) {
+    const { data: signed } = await supabase.storage.from('manual-renders').createSignedUrls([...renderPaths], 60 * 30);
+    for (const item of signed ?? []) {
+      if (item.signedUrl && item.path) signedUrlByPath.set(item.path, item.signedUrl);
+    }
+  }
+  const signedUrlByAssetPath = new Map<string, string>();
+  if (assetPaths.size) {
+    const { data: signed } = await supabase.storage.from('manual-assets').createSignedUrls([...assetPaths], 60 * 30);
+    for (const item of signed ?? []) {
+      if (item.signedUrl && item.path) signedUrlByAssetPath.set(item.path, item.signedUrl);
+    }
   }
 
   const categories = data.categories
@@ -346,10 +361,15 @@ export async function buildPublishPreview(taskId: string) {
                 rows: block.content.rows,
               });
             }
-            const renderUrl = slide.render_path ? signedUrlByPath.get(slide.render_path) : undefined;
-            if (renderUrl) {
-              for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
-                if (asset.crop_box) images.push({ renderUrl, cropBox: asset.crop_box, label: asset.label });
+            for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
+              if (asset.storage_path) {
+                // group_bake: 구워진 이미지 그대로(발행에 들어가는 바로 그 파일)
+                const assetUrl = signedUrlByAssetPath.get(asset.storage_path);
+                if (assetUrl) images.push({ renderUrl: assetUrl, cropBox: { left: 0, top: 0, width: 100, height: 100 }, label: asset.label });
+              } else if (asset.crop_box && slide.render_path) {
+                // capture(레거시): 렌더 + crop_box
+                const renderUrl = signedUrlByPath.get(slide.render_path);
+                if (renderUrl) images.push({ renderUrl, cropBox: asset.crop_box, label: asset.label });
               }
             }
           }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { selectInChunks } from '@/lib/supabase/chunked';
 
 interface RouteContext {
   params: Promise<{
@@ -42,7 +43,8 @@ export async function GET(_request: Request, context: RouteContext) {
   const slideRows = slides ?? [];
   const slideIds = slideRows.map((slide) => slide.id);
 
-  let assetRows: Array<{
+  // .in() 한 방은 큰 덱(200장+)에서 "URI too long" 으로 빈 결과가 됨 → 청크 조회.
+  const assetRows = await selectInChunks<{
     id: string;
     slide_id: string;
     kind: string;
@@ -51,15 +53,13 @@ export async function GET(_request: Request, context: RouteContext) {
     storage_path: string | null;
     review_status: string;
     confidence: number | null;
-  }> = [];
-  if (slideIds.length) {
-    const { data: assets } = await supabase
+  }>(slideIds, (chunk) =>
+    supabase
       .from('manual_assets')
       .select('id,slide_id,kind,label,crop_box,storage_path,review_status,confidence')
-      .in('slide_id', slideIds)
-      .order('created_at');
-    assetRows = assets ?? [];
-  }
+      .in('slide_id', chunk)
+      .order('created_at'),
+  );
 
   // 렌더 signed URL — 슬라이드마다 순차 호출하면 큰 덱(100장+)에서 30초+ 걸려 타임아웃났음.
   // Storage 배치 API(createSignedUrls)로 한 번에 서명한다.

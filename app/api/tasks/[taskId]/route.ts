@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { selectInChunks } from '@/lib/supabase/chunked';
 import { deleteSources } from '@/lib/storage/source-storage';
 
 interface RouteContext {
@@ -97,8 +98,11 @@ export async function DELETE(_request: Request, context: RouteContext) {
     let assetPaths: string[] = [];
 
     if (slideIds.length > 0) {
-      const { data: assets } = await supabase.from('manual_assets').select('storage_path').in('slide_id', slideIds);
-      assetPaths = (assets ?? []).map((asset) => asset.storage_path).filter(Boolean) as string[];
+      // .in() 한 방은 큰 덱(200장+)에서 "URI too long" 으로 빈 결과 → 에셋 파일이 스토리지에 남음. 청크 조회.
+      const assets = await selectInChunks<{ storage_path: string | null }>(slideIds, (chunk) =>
+        supabase.from('manual_assets').select('storage_path').in('slide_id', chunk),
+      );
+      assetPaths = assets.map((asset) => asset.storage_path).filter(Boolean) as string[];
     }
 
     await Promise.all([

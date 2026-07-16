@@ -1,5 +1,6 @@
 import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { selectInChunks } from '@/lib/supabase/chunked';
 import type { ManualProject, ManualReviewWarning, PipelineStatus } from '@/types/pipeline';
 
 interface ManualTaskRow {
@@ -175,24 +176,11 @@ export async function listManualProjects(): Promise<ManualProject[]> {
 
   const slideRows = (slides ?? []) as ManualSlideRow[];
   const slideIds = slideRows.map((slide) => slide.id);
-  let assetRows: ManualAssetRow[] = [];
 
-  // slide_id 를 한 번에 .in() 하면 수백 개일 때 URL 이 거대해져 매우 느리거나 실패했음.
-  // 200개씩 청크로 나눠 병렬 조회한다.
-  if (slideIds.length > 0) {
-    const CHUNK = 200;
-    const chunks: string[][] = [];
-    for (let i = 0; i < slideIds.length; i += CHUNK) chunks.push(slideIds.slice(i, i + CHUNK));
-    const results = await Promise.all(
-      chunks.map((ids) =>
-        supabase.from('manual_assets').select('id,slide_id,kind,label,confidence').in('slide_id', ids),
-      ),
-    );
-    for (const { data, error } of results) {
-      if (error) throw new Error(error.message);
-      assetRows.push(...((data ?? []) as ManualAssetRow[]));
-    }
-  }
+  // slide_id 를 한 번에 .in() 하면 수백 개일 때 URL 이 8KB 를 넘어 "URI too long" 으로 실패했음 → 청크 조회.
+  const assetRows = await selectInChunks<ManualAssetRow>(slideIds, (chunk) =>
+    supabase.from('manual_assets').select('id,slide_id,kind,label,confidence').in('slide_id', chunk),
+  );
 
   // 발행된 노션 페이지(task 매핑). 가장 최근 발행 페이지를 task 별로 1건 보관한다.
   const publishedPageByTaskId = new Map<string, string>();

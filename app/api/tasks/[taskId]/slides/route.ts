@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { selectInChunks } from '@/lib/supabase/chunked';
 
 interface RouteContext {
   params: Promise<{
@@ -34,18 +35,17 @@ export async function GET(_request: Request, context: RouteContext) {
     confidence: number | null;
   }> = [];
 
-  if (slideIds.length > 0) {
-    const { data: assetRows, error: assetError } = await supabase
-      .from('manual_assets')
-      .select('id,slide_id,kind,label,crop_box,review_status,confidence')
-      .in('slide_id', slideIds)
-      .order('created_at');
-
-    if (assetError) {
-      return NextResponse.json({ message: assetError.message }, { status: 500 });
-    }
-
-    assets = assetRows ?? [];
+  // .in() 한 방은 큰 덱(200장+)에서 "URI too long" 으로 빈 결과가 됨 → 청크 조회.
+  try {
+    assets = await selectInChunks(slideIds, (chunk) =>
+      supabase
+        .from('manual_assets')
+        .select('id,slide_id,kind,label,crop_box,review_status,confidence')
+        .in('slide_id', chunk)
+        .order('created_at'),
+    );
+  } catch (assetError) {
+    return NextResponse.json({ message: assetError instanceof Error ? assetError.message : '에셋 조회 실패' }, { status: 500 });
   }
 
   const assetsBySlideId = new Map<string, typeof assets>();
