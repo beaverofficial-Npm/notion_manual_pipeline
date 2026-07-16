@@ -13,7 +13,7 @@ import {
   screenshotCandidates,
 } from './ppt-parse.mjs';
 import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, stripOutsideTextShapes, extendCropRightByPixels, cropGroups } from './group-bake.mjs';
-import { downloadSource as downloadSourceFromR2 } from './source-storage.mjs';
+import { downloadSource as downloadSourceFromR2, putObject as putObjectR2, deleteObjects as deleteObjectsR2, listPrefix as listPrefixR2 } from './source-storage.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
@@ -211,12 +211,9 @@ async function renderSlides(pptPath, tmpDir) {
   return Array.from({ length: pageCount }, (_, index) => renderedByPage.get(index + 1)).filter(Boolean);
 }
 
-async function uploadFile(bucket, storagePath, filePath, contentType) {
-  const { error } = await supabase.storage.from(bucket).upload(storagePath, await readFile(filePath), {
-    contentType,
-    upsert: true,
-  });
-  if (error) throw new Error(error.message);
+async function uploadFile(_bucket, storagePath, filePath, contentType) {
+  // 결과 오브젝트(렌더/에셋/매니페스트)도 R2 로 — Supabase Storage 무료 1GB 를 결과 이미지가 채우던 문제 해결.
+  await putObjectR2(storagePath, await readFile(filePath), contentType);
 }
 
 // 슬라이드 순회로 카테고리/기능 트리를 만들고 본문 슬라이드를 기능에 매단다.
@@ -545,6 +542,13 @@ export async function runOnce(jobIdArg) {
     await supabase.from('manual_slides').delete().eq('task_id', job.task_id);
     await supabase.from('manual_functions').delete().eq('task_id', job.task_id);
     await supabase.from('manual_categories').delete().eq('task_id', job.task_id);
+    // 이전 run 의 결과 오브젝트(R2)도 지운다 — 안 지우면 재변환마다 storage 누수(원본 {task}/source 는 보존).
+    try {
+      const stale = await listPrefixR2(`${job.task_id}/runs/`);
+      if (stale.length) await deleteObjectsR2(stale);
+    } catch (staleErr) {
+      console.warn('[worker] 이전 결과 정리 실패(무시):', staleErr instanceof Error ? staleErr.message : String(staleErr));
+    }
 
     // 2차 적재: 카테고리 → 기능 → 슬라이드/블록/asset
     const slideIdByNumber = new Map();

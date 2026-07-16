@@ -1,6 +1,7 @@
 import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
 import { selectInChunks } from '@/lib/supabase/chunked';
+import { presignGetUrls } from '@/lib/storage/source-storage';
 import { cropRender, loadAsset, loadRender, resizeForPublish, storeCroppedAsset, uploadImageToNotion, type PercentBox } from '@/lib/notion/assets';
 
 const NOTION_VERSION = '2022-06-28';
@@ -326,20 +327,8 @@ export async function buildPublishPreview(taskId: string) {
       }
     }
   }
-  const signedUrlByPath = new Map<string, string>();
-  if (renderPaths.size) {
-    const { data: signed } = await supabase.storage.from('manual-renders').createSignedUrls([...renderPaths], 60 * 30);
-    for (const item of signed ?? []) {
-      if (item.signedUrl && item.path) signedUrlByPath.set(item.path, item.signedUrl);
-    }
-  }
-  const signedUrlByAssetPath = new Map<string, string>();
-  if (assetPaths.size) {
-    const { data: signed } = await supabase.storage.from('manual-assets').createSignedUrls([...assetPaths], 60 * 30);
-    for (const item of signed ?? []) {
-      if (item.signedUrl && item.path) signedUrlByAssetPath.set(item.path, item.signedUrl);
-    }
-  }
+  const signedUrlByPath = await presignGetUrls([...renderPaths]);
+  const signedUrlByAssetPath = await presignGetUrls([...assetPaths]);
 
   const categories = data.categories
     .map((category) => {

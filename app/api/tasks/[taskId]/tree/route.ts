@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
 import { selectInChunks } from '@/lib/supabase/chunked';
+import { presignGetUrls } from '@/lib/storage/source-storage';
 
 interface RouteContext {
   params: Promise<{
     taskId: string;
   }>;
 }
-
-const RENDER_BUCKET = 'manual-renders';
-const ASSET_BUCKET = 'manual-assets';
 
 // 검수 화면용 계층 트리: 카테고리 → 기능 → 슬라이드(+크롭 후보, 블록 요약).
 export async function GET(_request: Request, context: RouteContext) {
@@ -61,32 +59,14 @@ export async function GET(_request: Request, context: RouteContext) {
       .order('created_at'),
   );
 
-  // 렌더 signed URL — 슬라이드마다 순차 호출하면 큰 덱(100장+)에서 30초+ 걸려 타임아웃났음.
-  // Storage 배치 API(createSignedUrls)로 한 번에 서명한다.
-  const signedUrlByPath = new Map<string, string>();
+  // 렌더/에셋 이미지 표시 URL — R2 presigned GET(각 서명은 로컬 계산이라 네트워크 배치 왕복 없음).
   const renderPaths = [...new Set(slideRows.map((slide) => slide.render_path).filter(Boolean) as string[])];
-  if (renderPaths.length) {
-    const { data } = await supabase.storage.from(RENDER_BUCKET).createSignedUrls(renderPaths, 60 * 30);
-    for (const item of data ?? []) {
-      if (item.signedUrl && item.path) signedUrlByPath.set(item.path, item.signedUrl);
-    }
-  }
+  const signedUrlByPath = await presignGetUrls(renderPaths);
 
-  // group_bake 에셋 signed URL — 동일하게 배치 서명.
-  const signedUrlByAssetStoragePath = new Map<string, string>();
   const assetStoragePaths = [
-    ...new Set(
-      assetRows
-        .filter((asset) => asset.storage_path && asset.kind === 'group_bake')
-        .map((asset) => asset.storage_path as string),
-    ),
+    ...new Set(assetRows.filter((asset) => asset.storage_path).map((asset) => asset.storage_path as string)),
   ];
-  if (assetStoragePaths.length) {
-    const { data } = await supabase.storage.from(ASSET_BUCKET).createSignedUrls(assetStoragePaths, 60 * 30);
-    for (const item of data ?? []) {
-      if (item.signedUrl && item.path) signedUrlByAssetStoragePath.set(item.path, item.signedUrl);
-    }
-  }
+  const signedUrlByAssetStoragePath = await presignGetUrls(assetStoragePaths);
 
   const assetsBySlide = new Map<string, Array<typeof assetRows[number] & { signed_url?: string | null }>>();
   for (const asset of assetRows) {

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
 import { selectInChunks } from '@/lib/supabase/chunked';
+import { presignGetUrls } from '@/lib/storage/source-storage';
 
 interface RouteContext {
   params: Promise<{
@@ -55,15 +56,8 @@ export async function GET(_request: Request, context: RouteContext) {
     assetsBySlideId.set(asset.slide_id, current);
   }
 
-  const signedUrlByPath = new Map<string, string>();
   const renderPaths = slideRows.map((slide) => slide.render_path).filter(Boolean) as string[];
-
-  for (const renderPath of renderPaths) {
-    const { data } = await supabase.storage.from('manual-renders').createSignedUrl(renderPath, 60 * 10);
-    if (data?.signedUrl) {
-      signedUrlByPath.set(renderPath, data.signedUrl);
-    }
-  }
+  const signedUrlByPath = await presignGetUrls(renderPaths);
 
   return NextResponse.json({
     slides: slideRows.map((slide) => ({

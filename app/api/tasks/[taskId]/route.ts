@@ -61,16 +61,6 @@ export async function PATCH(request: Request, context: RouteContext) {
   return NextResponse.json({ task: data });
 }
 
-async function removeStoragePaths(bucket: string, paths: string[]) {
-  if (paths.length === 0) return;
-
-  const supabase = createServiceSupabaseClient();
-  for (let index = 0; index < paths.length; index += 100) {
-    const chunk = paths.slice(index, index + 100);
-    await supabase.storage.from(bucket).remove(chunk);
-  }
-}
-
 export async function DELETE(_request: Request, context: RouteContext) {
   const { taskId } = await context.params;
   const supabase = createServiceSupabaseClient();
@@ -105,19 +95,15 @@ export async function DELETE(_request: Request, context: RouteContext) {
       assetPaths = assets.map((asset) => asset.storage_path).filter(Boolean) as string[];
     }
 
-    await Promise.all([
-      // 원본 PPT 는 R2 에 있으므로 R2 에서 지운다(렌더/에셋/매니페스트는 그대로 Supabase Storage).
-      deleteSources((sources ?? []).map((source) => source.storage_path).filter(Boolean) as string[]),
-      removeStoragePaths(
-        'manual-renders',
-        slideRows.map((slide) => slide.render_path).filter(Boolean) as string[],
-      ),
-      removeStoragePaths('manual-assets', assetPaths),
-      removeStoragePaths(
-        'manual-manifests',
-        (jobs ?? []).map((job) => job.manifest_path).filter(Boolean) as string[],
-      ),
-    ]);
+    // 원본·렌더·에셋·매니페스트 전부 R2 → 한 번에 삭제.
+    await deleteSources(
+      [
+        ...(sources ?? []).map((source) => source.storage_path),
+        ...slideRows.map((slide) => slide.render_path),
+        ...assetPaths,
+        ...(jobs ?? []).map((job) => job.manifest_path),
+      ].filter(Boolean) as string[],
+    );
 
     const { error: deleteError } = await supabase.from('manual_tasks').delete().eq('id', taskId);
 

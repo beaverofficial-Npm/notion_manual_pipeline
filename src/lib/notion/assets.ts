@@ -1,13 +1,12 @@
 import 'server-only';
 import sharp from 'sharp';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
+import { getObjectBuffer, putObject } from '@/lib/storage/source-storage';
 
 // 작은 컨테이너(Railway)에서 발행 중 OOM 으로 죽지 않도록 sharp 메모리를 묶는다.
 sharp.cache(false);
 sharp.concurrency(1);
 
-const RENDER_BUCKET = 'manual-renders';
-const ASSET_BUCKET = 'manual-assets';
 const NOTION_VERSION = '2022-06-28';
 
 export interface PercentBox {
@@ -48,11 +47,7 @@ export async function cropRender(renderBuffer: Buffer, cropBox: PercentBox): Pro
 // 발행 루프는 슬라이드 단위로 한 번만 호출한다. 전역 캐시를 두면 모든 렌더 PNG 가
 // 프로세스 수명 동안 누적되어(메모리 누수) 작은 컨테이너에서 OOM 을 일으키므로 캐시하지 않는다.
 export async function loadRender(renderPath: string): Promise<Buffer> {
-  const supabase = createServiceSupabaseClient();
-  const { data, error } = await supabase.storage.from(RENDER_BUCKET).download(renderPath);
-  if (error || !data) throw new Error(error?.message ?? `렌더를 불러오지 못했습니다: ${renderPath}`);
-
-  return Buffer.from(await data.arrayBuffer());
+  return getObjectBuffer(renderPath);
 }
 
 // 노션 발행 시 이미지 폭을 줄여 더 작게 보이게 한다.
@@ -67,22 +62,14 @@ export async function resizeForPublish(buffer: Buffer): Promise<Buffer> {
 
 // group_bake 등 이미 manual-assets 버킷에 저장된 이미지를 그대로 불러온다.
 export async function loadAsset(storagePath: string): Promise<Buffer> {
-  const supabase = createServiceSupabaseClient();
-  const { data, error } = await supabase.storage.from(ASSET_BUCKET).download(storagePath);
-  if (error || !data) throw new Error(error?.message ?? `에셋 이미지를 불러오지 못했습니다: ${storagePath}`);
-  return Buffer.from(await data.arrayBuffer());
+  return getObjectBuffer(storagePath);
 }
 
 // 잘린 이미지를 manual-assets 버킷에 저장하고 storage_path 를 반환한다.
 export async function storeCroppedAsset(taskId: string, assetId: string, buffer: Buffer): Promise<string> {
   const supabase = createServiceSupabaseClient();
   const storagePath = `${taskId}/assets/${assetId}.png`;
-  const { error } = await supabase.storage.from(ASSET_BUCKET).upload(storagePath, buffer, {
-    contentType: 'image/png',
-    upsert: true,
-  });
-  if (error) throw new Error(error.message);
-
+  await putObject(storagePath, buffer, 'image/png');
   await supabase.from('manual_assets').update({ storage_path: storagePath, updated_at: new Date().toISOString() }).eq('id', assetId);
   return storagePath;
 }
