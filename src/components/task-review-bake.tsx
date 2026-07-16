@@ -3,7 +3,7 @@
 import { Button, Card, Input, Modal, message, dialog, primitiveRadius, primitiveSpacing, semanticColors, semanticTypography } from '@sungbinhwang-beaverworksinc/design-system';
 import { ArrowLeft, Eye, Loader, Send } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 const ps = primitiveSpacing;
@@ -645,6 +645,57 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
   const [notionTarget, setNotionTarget] = useState('');
   const [isPublishingInProgress, setIsPublishingInProgress] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishProgress, setPublishProgress] = useState<{ done: number; total: number; label: string } | null>(null);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const publishPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 페이지를 떠나면 폴링 타이머 정리(발행 자체는 워커가 계속한다).
+  useEffect(() => {
+    return () => {
+      if (publishPollRef.current) clearTimeout(publishPollRef.current);
+    };
+  }, []);
+
+  // 재부착: 새로고침/재진입 시 발행이 진행 중이면 진행 다이얼로그를 자동으로 다시 연다.
+  // (백그라운드에서 "몰래" 돌지 않게 — 항상 보이면서 돈다)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/publish/status`);
+        if (!res.ok) return;
+        const st = (await res.json()) as {
+          taskExists: boolean;
+          publishStatus: string | null;
+          progress: { done: number; total: number; label: string };
+        };
+        if (!alive) return;
+        if (st.taskExists && (st.publishStatus === 'queued' || st.publishStatus === 'running')) {
+          setIsPublishingInProgress(true);
+          setPublishProgress(st.progress ?? { done: 0, total: 0, label: '발행 진행 중' });
+          startPublishPolling();
+        }
+      } catch {
+        /* noop */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskId]);
+
+  // 발행 취소(명시적 의도) — 워커가 신호를 보고 실제로 중단한다.
+  async function handleCancelPublish() {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/publish/cancel`, { method: 'POST' });
+      const parsed = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(parsed.message ?? '발행 취소에 실패했습니다.');
+      // 이후 폴링이 cancelled 를 감지해 다이얼로그를 정리한다.
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '발행 취소에 실패했습니다.');
+    }
+  }
 
   // 함수 포함/제외 상태 (함수 ID → boolean)
   const [functionIncluded, setFunctionIncluded] = useState<Record<string, boolean>>({});
@@ -713,7 +764,7 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
     }
   }
 
-  // 발행
+  // 발행 — 큐에 넣고 상태를 폴링한다. 연결이 끊겨도 워커가 끝까지 처리하고, 진행/완료/실패는 항상 서버 상태 기준.
   async function handlePublish() {
     if (!notionTarget.trim()) {
       message.error('Notion 링크를 입력해 주세요.');
@@ -722,10 +773,10 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
 
     setIsPublishingInProgress(true);
     setPublishError(null);
-    let hadError = false;
+    setPublishedUrl(null);
+    setPublishProgress({ done: 0, total: 0, label: '발행 요청 중…' });
 
     try {
-      // 제외된 함수 목록 빌드
       const excludedFnIds = tree
         .flatMap((cat) => cat.functions)
         .filter((fn) => !functionIncluded[fn.id])
@@ -738,58 +789,72 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
       });
 
       if (!response.ok) {
-        // 409(이미 발행 중) 등 — 서버가 준 메시지를 그대로 보여준다.
-        let msg = `발행 요청 실패 (${response.status})`;
+        // 400(노션 권한/링크)·404(작업 사라짐)·409(중복) — 서버가 준 사람 말 메시지를 그대로 보여준다.
+        let msg = `발행을 시작하지 못했습니다 (${response.status})`;
         try {
-          const parsed = JSON.parse((await response.text()).trim().split('\n')[0] || '{}');
-          if (parsed.message) msg = parsed.message;
+          const parsed = await response.json();
+          if (parsed?.message) msg = parsed.message;
         } catch {
           /* noop */
         }
+        setPublishProgress(null);
         setPublishError(msg);
-        return; // 모달은 열어둔 채 에러 표시
+        return; // 모달 열어둔 채 에러 표시
       }
 
-      // NDJSON 스트림 처리
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('응답 스트림 없음');
+      // 큐에 들어감 → 상태 폴링 시작(연결 끊겨도 안전).
+      startPublishPolling();
+    } catch (err) {
+      setPublishProgress(null);
+      setPublishError(err instanceof Error ? `발행 시작에 실패했습니다 — ${err.message}` : '발행 시작에 실패했습니다.');
+    }
+  }
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (!line) continue;
-          try {
-            const event = JSON.parse(line);
-            if (event.type === 'error') {
-              hadError = true;
-              setPublishError(event.message ?? '발행 중 오류가 발생했습니다.');
-            }
-          } catch {
-            /* 부분 라인 무시 */
+  // 발행 상태를 3초마다 폴링. 완료/실패까지 다이얼로그를 유지하며 진행바를 갱신한다.
+  function startPublishPolling() {
+    if (publishPollRef.current) clearTimeout(publishPollRef.current);
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/tasks/${taskId}/publish/status`);
+        if (res.ok) {
+          const st = (await res.json()) as {
+            taskExists: boolean;
+            publishStatus: string | null;
+            progress: { done: number; total: number; label: string };
+            error: string | null;
+            url: string | null;
+          };
+          if (!st.taskExists) {
+            setPublishProgress(null);
+            setPublishError('이 작업을 찾을 수 없어요. 삭제되었거나 오래된 화면일 수 있으니 목록을 새로고침 해주세요.');
+            return;
+          }
+          setPublishProgress(st.progress);
+          if (st.publishStatus === 'succeeded') {
+            setPublishedUrl(st.url ?? null);
+            setPublishProgress(null);
+            setIsPublishingInProgress(false);
+            message.success('노션 발행 완료');
+            return;
+          }
+          if (st.publishStatus === 'cancelled') {
+            setPublishProgress(null);
+            setIsPublishingInProgress(false);
+            message.info('발행을 취소했습니다.');
+            return;
+          }
+          if (st.publishStatus === 'failed') {
+            setPublishProgress(null);
+            setPublishError(`발행 실패 — ${st.error ?? '알 수 없는 오류가 발생했습니다.'}`);
+            return; // 모달 열어둔 채 에러
           }
         }
+      } catch {
+        /* 일시 오류 — 다음 폴에서 재시도 */
       }
-
-      if (hadError) return; // 에러가 있었으면 모달 열어둔 채 종료(성공 토스트 X)
-      message.success('발행 완료');
-      setIsPublishingInProgress(false); // 성공했을 때만 닫는다
-    } catch (err) {
-      // 연결 끊김·타임아웃 등 — 모달을 닫지 않고 에러를 명확히 남긴다.
-      setPublishError(
-        err instanceof Error
-          ? `발행이 중단됐습니다: ${err.message}. (큰 덱은 시간이 걸릴 수 있어요 — 잠시 후 다시 시도)`
-          : '발행이 중단됐습니다. 잠시 후 다시 시도해 주세요.',
-      );
-    }
+      publishPollRef.current = setTimeout(tick, 3000);
+    };
+    tick();
   }
 
   if (loading) {
@@ -1014,44 +1079,62 @@ export function TaskReviewBake({ taskId }: TaskReviewBakeProps) {
         open={isPublishingInProgress}
         onClose={() => {
           setIsPublishingInProgress(false);
-          setPublishError(null);
+          if (publishError) setPublishError(null);
         }}
         title={publishError ? '노션 발행 실패' : '노션 발행 중'}
         size="sm"
         footer={
-          <Button
-            variant="default"
-            onClick={() => {
-              setIsPublishingInProgress(false);
-              setPublishError(null);
-            }}
-          >
-            {publishError ? '닫기' : '취소'}
-          </Button>
+          publishError ? (
+            <Button
+              variant="default"
+              onClick={() => {
+                setIsPublishingInProgress(false);
+                setPublishError(null);
+              }}
+            >
+              닫기
+            </Button>
+          ) : (
+            <>
+              <Button variant="default" onClick={handleCancelPublish}>
+                발행 취소
+              </Button>
+              <Button variant="default" onClick={() => setIsPublishingInProgress(false)}>
+                숨기기
+              </Button>
+            </>
+          )
         }
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: ps.md, padding: ps.md }}>
           {publishError ? (
-            <div style={{ padding: ps.md, background: sc.error.bg, borderRadius: pr.base, color: sc.error.text }}>
+            <div style={{ padding: ps.md, background: sc.error.bg, borderRadius: pr.base, color: sc.error.text, whiteSpace: 'pre-wrap', lineHeight: st.lineHeight }}>
               {publishError}
             </div>
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', gap: ps.sm }}>
                 <Loader className="nm-spin" size={20} />
-                <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading }}>발행 중...</span>
+                <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading }}>
+                  {publishProgress?.label || '발행 준비 중…'}
+                </span>
               </div>
               <div style={{ height: 8, borderRadius: pr.sm, background: sc.bg.elevated, overflow: 'hidden' }}>
                 <div
-                  className="nm-progress-active"
+                  className={publishProgress && publishProgress.total > 0 ? undefined : 'nm-progress-active'}
                   style={{
                     height: '100%',
-                    width: '40%',
+                    width: publishProgress && publishProgress.total > 0 ? `${Math.round((publishProgress.done / publishProgress.total) * 100)}%` : '40%',
                     background: sc.primary.default,
                     borderRadius: pr.sm,
                     transition: 'width 300ms ease',
                   }}
                 />
+              </div>
+              <div style={{ fontSize: st.fontSizeSM, color: sc.text.secondary, lineHeight: st.lineHeight }}>
+                {publishProgress && publishProgress.total > 0
+                  ? `${publishProgress.done}/${publishProgress.total} 단계 · 창을 닫아도 발행은 계속됩니다`
+                  : '창을 닫거나 연결이 끊겨도 발행은 백그라운드에서 계속됩니다.'}
               </div>
             </>
           )}

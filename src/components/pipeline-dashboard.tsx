@@ -372,92 +372,6 @@ function statusPill(status: PipelineStatus) {
   );
 }
 
-function activeProgress(clock: number, base: number, ceiling: number) {
-  const eased = 1 - Math.exp(-clock / 18);
-  return Math.min(ceiling, Math.round(base + eased * (ceiling - base)));
-}
-
-function taskStep(project: ManualProject, isRunning: boolean, isPublishing: boolean, clock: number) {
-  if (isPublishing || project.status === 'publishing') {
-    return {
-      label: 'Notion 내보내는 중',
-      detail: '대상 페이지 아래에 하위 페이지와 블록을 생성하고 있습니다.',
-      progress: activeProgress(clock, 64, 94),
-      active: true,
-    };
-  }
-
-  if (isRunning || project.status === 'running') {
-    return {
-      label: 'PPT 분석 중',
-      detail: '슬라이드 이미지, 텍스트, 화면 영역을 추출하고 있습니다.',
-      progress: activeProgress(clock, 18, 88),
-      active: true,
-    };
-  }
-
-  if (project.status === 'ready') {
-    return { label: '업로드 완료', detail: 'PPT 원본이 저장되었습니다. 변환을 시작할 수 있습니다.', progress: 24, active: false };
-  }
-
-  if (project.status === 'review_required') {
-    return {
-      label: '변환 완료',
-      detail: '바로 Notion에 내보내거나, 필요한 페이지만 편집할 수 있습니다.',
-      progress: 72,
-      active: false,
-    };
-  }
-
-  if (project.status === 'ready_to_publish') {
-    return { label: '페이지 확인 완료', detail: '편집한 내용으로 Notion에 내보낼 수 있습니다.', progress: 92, active: false };
-  }
-
-  if (project.status === 'published') {
-    return { label: 'Notion 내보내기 완료', detail: '내보낸 뒤에도 페이지를 수정하고 다시 내보낼 수 있습니다.', progress: 100, active: false };
-  }
-
-  if (project.status === 'failed') {
-    return { label: '실패', detail: '작업 중 오류가 발생했습니다. 메시지를 확인한 뒤 재시도해 주세요.', progress: 100, active: false };
-  }
-
-  return { label: '시작 전', detail: 'PPT를 업로드해 작업을 시작합니다.', progress: 0, active: false };
-}
-
-function progress({
-  label,
-  detail,
-  progress,
-  active,
-  clock,
-}: {
-  label: string;
-  detail: string;
-  progress: number;
-  active?: boolean;
-  clock?: number;
-}) {
-  const suffix = active && typeof clock === 'number' ? '.'.repeat((clock % 3) + 1) : '';
-
-  return (
-    <div style={styles.processPanel}>
-      <div style={styles.progressHeader}>
-        <div>
-          <strong style={styles.strongText}>
-            {label}
-            {suffix}
-          </strong>
-          <span style={styles.smallText}>{detail}</span>
-        </div>
-        <span style={styles.progressValue}>{progress}%</span>
-      </div>
-      <div style={styles.progressTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
-        <div className={active ? 'nm-progress-active' : undefined} style={{ ...styles.progressBar, width: `${progress}%` }} />
-      </div>
-    </div>
-  );
-}
-
 export function PipelineDashboard({ projects: initialProjects }: PipelineDashboardProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState(initialProjects);
@@ -475,7 +389,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [convWatch, setConvWatch] = useState<{ taskId: string; title: string } | null>(null);
   const [convStatus, setConvStatus] = useState<{ taskStatus: string | null; jobStatus: string | null; jobError: string | null; slideCount: number } | null>(null);
   const [editTitleValue, setEditTitleValue] = useState('');
-  const [progressClock, setProgressClock] = useState(0);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const isNarrow = useNarrowLayout();
 
@@ -510,22 +423,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
 
     return () => window.clearInterval(intervalId);
   }, [deletingTaskId, projects, publishingTaskId, runningTaskId]);
-
-  useEffect(() => {
-    const hasActiveWork =
-      isSubmitting ||
-      projects.some((project) => project.status === 'running' || project.status === 'publishing') ||
-      Boolean(runningTaskId) ||
-      Boolean(publishingTaskId);
-
-    if (!hasActiveWork) return;
-
-    const intervalId = window.setInterval(() => {
-      setProgressClock((current) => current + 1);
-    }, 750);
-
-    return () => window.clearInterval(intervalId);
-  }, [isSubmitting, projects, publishingTaskId, runningTaskId]);
 
   // 변환 진행 모달: task 상태를 폴링해 진행을 보여준다(완료/실패 시 폴링 종료).
   useEffect(() => {
@@ -578,7 +475,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     if (!selectedFile || isSubmitting) return;
 
     setIsSubmitting(true);
-    setProgressClock(0);
     setSubmitStep('PPT 업로드 중');
     setFeedback(null);
     // 클릭 즉시 진행 모달을 연다(taskId 없는 동안은 '업로드 중' 단계).
@@ -694,7 +590,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     if (runningTaskId) return;
 
     setRunningTaskId(taskId);
-    setProgressClock(0);
     setFeedback(null);
 
     try {
@@ -770,64 +665,88 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     if (publishingTaskId || !publishNotionTarget.trim()) return;
 
     setPublishingTaskId(taskId);
-    setProgressClock(0);
     setFeedback(null);
 
+    async function refreshProjects() {
+      try {
+        const listResponse = await fetch('/api/tasks');
+        const listResult = (await listResponse.json()) as { projects?: ManualProject[] };
+        if (listResponse.ok && listResult.projects) setProjects(listResult.projects);
+      } catch {
+        /* 다음 폴에서 갱신 */
+      }
+    }
+
     try {
-      // 발행은 NDJSON 스트림으로 진행 상황을 보낸다. 마지막 done 이벤트의 결과를 사용한다.
+      // 발행을 큐에 넣는다(즉시 리턴). 실제 발행은 워커가 백그라운드로 — 창을 닫아도 계속된다.
       const response = await fetch(`/api/tasks/${taskId}/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notionTarget: publishNotionTarget }),
       });
-      if (!response.ok || !response.body) throw new Error('Notion 발행에 실패했습니다.');
+      if (!response.ok) {
+        // 400(노션 권한/링크)·404(작업 사라짐)·409(중복) — 서버의 사람 말 메시지를 그대로.
+        const parsed = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(parsed.message ?? `발행을 시작하지 못했습니다 (${response.status})`);
+      }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let finalResult: TaskPublishResult['result'] | null = null;
-      let errorMsg = '';
+      // 입력 모달은 닫고, 카드가 "Notion 내보내는 중"으로 진행을 보여준다.
+      setPublishModalOpen(null);
+      setPublishNotionTarget('');
+      await refreshProjects();
 
+      // 완료/실패까지 발행 상태 폴링(연결 끊겨도 발행은 서버에서 계속).
       for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const ev = JSON.parse(line) as
-            | { type: 'progress'; progress: { done: number; total: number; label: string } }
-            | { type: 'done'; result: TaskPublishResult['result'] }
-            | { type: 'error'; message: string };
-          if (ev.type === 'done') finalResult = ev.result;
-          else if (ev.type === 'error') errorMsg = ev.message;
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const statusRes = await fetch(`/api/tasks/${taskId}/publish/status`).catch(() => null);
+        if (!statusRes || !statusRes.ok) continue; // 일시 오류 — 다음 폴에서 재시도
+        const st = (await statusRes.json()) as {
+          taskExists: boolean;
+          publishStatus: string | null;
+          error: string | null;
+          url: string | null;
+        };
+        if (!st.taskExists) {
+          throw new Error('이 작업을 찾을 수 없어요. 삭제되었거나 오래된 화면일 수 있으니 목록을 확인해 주세요.');
+        }
+        if (st.publishStatus === 'succeeded') {
+          await refreshProjects();
+          setFeedback({
+            type: 'success',
+            message: st.url ? `Notion 페이지가 생성되었습니다: ${st.url}` : 'Notion 페이지가 생성되었습니다.',
+          });
+          message.success('Notion 발행 완료');
+          return;
+        }
+        if (st.publishStatus === 'cancelled') {
+          await refreshProjects();
+          message.info('발행을 취소했습니다.');
+          return;
+        }
+        if (st.publishStatus === 'failed') {
+          throw new Error(`발행 실패 — ${st.error ?? '알 수 없는 오류가 발생했습니다.'}`);
         }
       }
-
-      if (errorMsg) throw new Error(errorMsg);
-      if (!finalResult) throw new Error('Notion 발행에 실패했습니다.');
-
-      // 프로젝트 목록 새로고침
-      const listResponse = await fetch('/api/tasks');
-      const listResult = (await listResponse.json()) as { projects?: ManualProject[] };
-      if (listResponse.ok && listResult.projects) {
-        setProjects(listResult.projects);
-      }
-
-      setFeedback({
-        type: 'success',
-        message: finalResult.url ? `Notion 페이지가 생성되었습니다: ${finalResult.url}` : 'Notion 페이지가 생성되었습니다.',
-      });
-      message.success('Notion 페이지가 생성되었습니다.');
     } catch (error) {
       const text = error instanceof Error ? error.message : 'Notion 발행에 실패했습니다.';
+      await refreshProjects();
       setFeedback({ type: 'error', message: text });
       message.error(text);
     } finally {
       setPublishingTaskId('');
       setPublishModalOpen(null);
-      setPublishNotionTarget('');
+    }
+  }
+
+  // 발행 취소 — 워커가 취소 신호를 보고 실제로 중단한다(명시적 취소만 중단, 새로고침/닫기는 발행에 영향 없음).
+  async function handleCancelPublish(taskId: string) {
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/publish/cancel`, { method: 'POST' });
+      const parsed = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(parsed.message ?? '발행 취소에 실패했습니다.');
+      message.info('발행 취소를 요청했습니다.');
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '발행 취소에 실패했습니다.');
     }
   }
 
@@ -1020,10 +939,16 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                         </>
                       ) : null}
                       {project.status === 'publishing' || isPublishing ? (
-                        <Button variant="primary" size="sm" disabled>
-                          <Send size={14} />
-                          Notion 내보내는 중
-                        </Button>
+                        <>
+                          <Button variant="primary" size="sm" disabled>
+                            <Send size={14} />
+                            Notion 내보내는 중
+                          </Button>
+                          <Button variant="default" size="sm" onClick={() => handleCancelPublish(project.id)}>
+                            <X size={14} />
+                            발행 취소
+                          </Button>
+                        </>
                       ) : null}
                       {!isBusy && (project.status === 'ready' || project.status === 'draft' || project.status === 'failed') ? (
                         <Button variant="primary" size="sm" disabled={!canRun} onClick={() => handleRunTask(project.id)}>
@@ -1145,17 +1070,6 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
               : job === 'running'
                 ? '슬라이드 분석·렌더 중'
                 : '분석 대기 중';
-        const slideCount = convStatus?.slideCount ?? 0;
-        // 단계별 채움 + 분석 중엔 슬라이드 수에 따라 90%까지 점근(총 개수 미지라 100%는 완료시에만).
-        const pct = uploading
-          ? 12
-          : succeeded
-            ? 100
-            : failed
-              ? 100
-              : job === 'running'
-                ? Math.min(90, Math.round(35 + (slideCount / (slideCount + 10)) * 55))
-                : 30;
         return (
           <Modal
             open={!!convWatch}
@@ -1204,16 +1118,18 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                   <X size={20} color={sc.error.default} />
                 )}
                 <span style={{ fontSize: st.fontSize, fontWeight: st.fontWeightMedium, color: sc.text.heading, flex: 1 }}>{phase}</span>
-                {!failed && <span style={{ fontSize: st.fontSizeSM, fontWeight: st.fontWeightMedium, color: sc.text.secondary }}>{pct}%</span>}
+                {succeeded && <span style={{ fontSize: st.fontSizeSM, fontWeight: st.fontWeightMedium, color: sc.text.secondary }}>100%</span>}
               </div>
+              {/* 진행률(%)은 총량을 알 때만 표시 — 모르는 동안은 가짜 %가 아니라 불확정 애니메이션 */}
               <div style={{ height: 8, borderRadius: pr.sm, background: sc.bg.elevated, overflow: 'hidden' }}>
                 <div
+                  className={inProgress ? 'nm-progress-active' : undefined}
                   style={{
                     height: '100%',
-                    width: `${pct}%`,
+                    width: '100%',
                     background: failed ? sc.text.quaternary : sc.primary.default,
                     borderRadius: pr.sm,
-                    transition: 'width 500ms ease',
+                    opacity: inProgress ? 0.55 : 1,
                   }}
                 />
               </div>

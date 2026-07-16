@@ -1339,7 +1339,12 @@ export function TaskReviewGallery({ taskId }: TaskReviewGalleryProps) {
   }
 
   function cancelPublish() {
+    // 명시적 취소 — 서버 발행을 실제로 중단시킨다.
+    void fetch(`/api/tasks/${taskId}/publish/cancel`, { method: 'POST' }).catch(() => null);
     publishAbortRef.current?.abort();
+    setIsPublishingInProgress(false);
+    setPublishProgress(null);
+    message.info('발행 취소를 요청했습니다.');
   }
 
   async function runPublish() {
@@ -1348,44 +1353,48 @@ export function TaskReviewGallery({ taskId }: TaskReviewGalleryProps) {
     const controller = new AbortController();
     publishAbortRef.current = controller;
     try {
-      const response = await fetch(`/api/tasks/${taskId}/publish`, { method: 'POST', signal: controller.signal });
-      if (!response.ok || !response.body) throw new Error('발행 요청에 실패했습니다.');
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let finalResult: typeof publishResult = null;
-      let errorMsg = '';
+      // 큐에 넣고(즉시 리턴) 상태를 폴링한다. 대상 페이지는 task 에 저장된 값을 서버가 사용한다.
+      const response = await fetch(`/api/tasks/${taskId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!response.ok) {
+        const parsed = (await response.json().catch(() => ({}))) as { message?: string };
+        throw new Error(parsed.message ?? `발행을 시작하지 못했습니다 (${response.status})`);
+      }
 
       for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          const ev = JSON.parse(line) as
-            | { type: 'progress'; progress: { done: number; total: number; label: string } }
-            | { type: 'done'; result: typeof publishResult }
-            | { type: 'error'; message: string };
-          if (ev.type === 'progress') setPublishProgress(ev.progress);
-          else if (ev.type === 'done') finalResult = ev.result;
-          else if (ev.type === 'error') errorMsg = ev.message;
+        if (controller.signal.aborted) return; // 표시만 닫음(발행은 계속)
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+        const statusRes = await fetch(`/api/tasks/${taskId}/publish/status`).catch(() => null);
+        if (!statusRes || !statusRes.ok) continue;
+        const st = (await statusRes.json()) as {
+          taskExists: boolean;
+          publishStatus: string | null;
+          progress: { done: number; total: number; label: string };
+          error: string | null;
+          pageId: string | null;
+          url: string | null;
+        };
+        if (!st.taskExists) throw new Error('이 작업을 찾을 수 없어요. 삭제되었거나 오래된 화면일 수 있습니다.');
+        setPublishProgress(st.progress);
+        if (st.publishStatus === 'succeeded') {
+          setPublishResult({ pageId: st.pageId ?? undefined, url: st.url ?? undefined });
+          setShowPublishResult(true);
+          message.success('노션으로 발행했습니다.');
+          return;
+        }
+        if (st.publishStatus === 'cancelled') {
+          message.info('발행을 취소했습니다.');
+          return;
+        }
+        if (st.publishStatus === 'failed') {
+          throw new Error(`발행 실패 — ${st.error ?? '알 수 없는 오류가 발생했습니다.'}`);
         }
       }
-
-      if (errorMsg) throw new Error(errorMsg);
-      if (!finalResult) throw new Error('발행 결과가 없습니다.');
-      setPublishResult(finalResult);
-      setShowPublishResult(true);
-      message.success('노션으로 발행했습니다.');
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        message.info('발행을 취소했습니다.');
-      } else {
-        message.error(err instanceof Error ? err.message : '발행을 실패했습니다.');
-      }
+      message.error(err instanceof Error ? err.message : '발행을 실패했습니다.');
     } finally {
       publishAbortRef.current = null;
       setIsPublishingInProgress(false);
