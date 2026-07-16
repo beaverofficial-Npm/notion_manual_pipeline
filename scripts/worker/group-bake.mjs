@@ -415,11 +415,11 @@ export async function cropGroups(slidePngPath, boxes, outDir, slideNumber) {
     const outPath = path.join(outDir, `slide-${String(slideNumber).padStart(3, '0')}-group-${String(i).padStart(2, '0')}.png`);
 
     try {
-      // sharp crop: extract({ left, top, width, height })
-      await sharp(slidePngPath)
-        .extract({ left: xClamped, top: yClamped, width: wClamped, height: hClamped })
-        .png()
-        .toFile(outPath);
+      // 크롭 후 언샤프 마스크로 경계를 또렷하게 — 저해상도 스크린샷의 체감 선명도를 올린다.
+      // 무손실 렌더 위에 얹으므로 아티팩트를 강조하지 않는다. RENDER_SHARPEN=0 이면 끈다.
+      let pipeline = sharp(slidePngPath).extract({ left: xClamped, top: yClamped, width: wClamped, height: hClamped });
+      if (process.env.RENDER_SHARPEN !== '0') pipeline = pipeline.sharpen({ sigma: 1.7, m1: 0, m2: 3 });
+      await pipeline.png().toFile(outPath);
       results.push(outPath);
     } catch (error) {
       console.error(`[group-bake] crop failed for group ${i}: ${error.message}`);

@@ -163,17 +163,28 @@ async function renderPdfRange({ pdfPath, tmpDir, renderDpi, from, to, chunkIndex
 async function renderSlides(pptPath, tmpDir) {
   // 고유 프로필 디렉터리(-env:UserInstallation)로 headless soffice 락/행을 방지하고, 타임아웃을 둔다.
   const profile = `file://${path.join(tmpDir, 'loprofile')}`;
-  try {
-    await execFileAsync(
-      soffice,
-      [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath],
-      { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
-    );
-  } catch (error) {
-    throw new Error(formatExecError(error, 'LibreOffice PDF conversion failed'));
+  // LibreOffice 기본 PDF 내보내기는 이미지를 JPEG 로 재압축해 스크린샷 글자 주변에 아티팩트를 남긴다.
+  // 무손실 + 해상도 축소 없음으로 먼저 시도하고, 필터를 못 알아듣는 LO 면 기본 pdf 로 폴백한다.
+  const losslessFilter =
+    'pdf:impress_pdf_Export:{"UseLosslessCompression":{"type":"boolean","value":true},"ReduceImageResolution":{"type":"boolean","value":false}}';
+  const filters = process.env.RENDER_LOSSLESS === '0' ? ['pdf'] : [losslessFilter, 'pdf'];
+  let lastError = null;
+  let pdfName = null;
+  for (const filter of filters) {
+    try {
+      await execFileAsync(
+        soffice,
+        [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', filter, '--outdir', tmpDir, pptPath],
+        { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
+      );
+      pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
+      if (pdfName) break;
+      lastError = new Error(`no PDF produced (filter=${filter.slice(0, 24)})`);
+    } catch (error) {
+      lastError = error;
+    }
   }
-  const pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
-  if (!pdfName) throw new Error('PDF conversion failed.');
+  if (!pdfName) throw new Error(formatExecError(lastError, 'LibreOffice PDF conversion failed'));
   const pdfPath = path.join(tmpDir, pdfName);
   const renderDpi = process.env.RENDER_DPI ?? '300';
   const pageCount = await countPdfPages(pdfPath);
