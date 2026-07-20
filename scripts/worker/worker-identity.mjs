@@ -5,6 +5,8 @@ import os from 'node:os';
 
 function detectVersion() {
   if (process.env.WORKER_VERSION) return process.env.WORKER_VERSION; // 컨테이너 빌드 시 주입 가능
+  // Railway 는 배포 커밋 SHA 를 자동 주입한다 — 운영 컨테이너엔 git 이 없으므로 이것이 운영 버전 도장.
+  if (process.env.RAILWAY_GIT_COMMIT_SHA) return process.env.RAILWAY_GIT_COMMIT_SHA.slice(0, 7);
   try {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 3000 }).trim();
   } catch {
