@@ -9,10 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zip \
     fonts-noto-cjk \
     fonts-noto-cjk-extra \
+    fonts-noto-core \
     fonts-nanum \
     fontconfig \
     ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# 마스터 PPT 본문 폰트(Pretendard) 실물 설치 — 대체 폰트로 그리면 글자 폭이 달라져
+# 뱃지 안 숫자가 줄바꿈되며 밀리는 실사용 이슈가 있었다(2026-07-20). OFL 1.1 재배포.
+COPY docker/fonts/*.otf /usr/share/fonts/opentype/pretendard/
 
 # Windows 한글 폰트(맑은 고딕 등) → 설치 폰트 매핑. 대체 폰트를 예측 가능하게 해 텍스트 넘침/겹침을 줄인다.
 COPY docker/fonts-local.conf /etc/fonts/conf.d/99-korean-aliases.conf
