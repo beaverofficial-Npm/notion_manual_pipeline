@@ -54,26 +54,41 @@ function blocksOf(xml, tag) {
   return out;
 }
 
+// 문단 내 수동 줄바꿈 <a:br>(rPr 자식을 가진 짝태그형 포함)을 구분자로 치환.
+// 무시하고 run 을 이어붙이면 "…있어요a. 일괄 설정 시a-1.…" 처럼 줄이 뭉개진다(실측 04#60/61).
+function splitBreaks(inner) {
+  return inner
+    .replace(/<a:br\b[^>]*>[\s\S]*?<\/a:br>/g, '\u0000')
+    .replace(/<a:br\b[^>]*\/>/g, '\u0000')
+    .split('\u0000');
+}
+
+function runsText(segment) {
+  return [...segment.matchAll(/<a:t>(.*?)<\/a:t>/g)]
+    .map((m) => decodeXml(m[1]))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function paragraphsOf(block) {
   const paras = [];
   const regex = /<a:p>([\s\S]*?)<\/a:p>/g;
   let match;
   while ((match = regex.exec(block))) {
-    const text = [...match[1].matchAll(/<a:t>(.*?)<\/a:t>/g)]
-      .map((m) => decodeXml(m[1]))
-      .join('')
-      .replace(/\s+/g, ' ')
-      .trim();
-    if (text) paras.push(text);
+    for (const seg of splitBreaks(match[1])) {
+      const text = runsText(seg);
+      if (text) paras.push(text);
+    }
   }
   return paras;
 }
 
 function joinedText(block) {
-  return [...block.matchAll(/<a:t>(.*?)<\/a:t>/g)]
-    .map((m) => decodeXml(m[1]))
-    .join('')
-    .replace(/\s+/g, ' ')
+  return splitBreaks(block)
+    .map(runsText)
+    .filter(Boolean)
+    .join(' ')
     .trim();
 }
 
@@ -115,11 +130,73 @@ function extractTables(xml) {
   return tables;
 }
 
-// slide XML → shape/pic/table 구조
+// spTree 를 그룹 변환(off/ext ↔ chOff/chExt) 추적하며 걸어, 그룹 안 도형까지 **절대 좌표**로 수집한다.
+// (그룹 안 sp/pic 은 좌표가 그룹-내부 기준이라, 변환 없이 읽으면 (0,0) 등 쓰레기 값 →
+//  "그룹라벨"로 오인돼 본문에서 통째로 증발했다. 예: 키오스크 상품설정 설명 텍스트)
+function collectDrawables(segment, tf, out, inGroup = false) {
+  const tokenRe = /<p:grpSp\b[^>]*>|<\/p:grpSp>|<p:sp>[\s\S]*?<\/p:sp>|<p:pic>[\s\S]*?<\/p:pic>/g;
+  let depth = 0;
+  let grpStart = -1;
+  let m;
+  while ((m = tokenRe.exec(segment))) {
+    const t = m[0];
+    if (t.startsWith('<p:grpSp')) {
+      if (depth === 0) grpStart = m.index + t.length;
+      depth += 1;
+      continue;
+    }
+    if (t.startsWith('</p:grpSp')) {
+      depth -= 1;
+      if (depth === 0 && grpStart >= 0) {
+        const inner = segment.slice(grpStart, m.index);
+        const pr = inner.match(/<p:grpSpPr\b[\s\S]*?<\/p:grpSpPr>/)?.[0] ?? '';
+        const offX = firstNumber(pr, /<a:off[^>]*x="(-?\d+)"/);
+        const offY = firstNumber(pr, /<a:off[^>]*y="(-?\d+)"/);
+        const extX = firstNumber(pr, /<a:ext[^>]*cx="(\d+)"/);
+        const extY = firstNumber(pr, /<a:ext[^>]*cy="(\d+)"/);
+        const chOffX = firstNumber(pr, /<a:chOff[^>]*x="(-?\d+)"/);
+        const chOffY = firstNumber(pr, /<a:chOff[^>]*y="(-?\d+)"/);
+        const chExtX = firstNumber(pr, /<a:chExt[^>]*cx="(\d+)"/);
+        const chExtY = firstNumber(pr, /<a:chExt[^>]*cy="(\d+)"/);
+        const gx = extX && chExtX ? extX / chExtX : 1;
+        const gy = extY && chExtY ? extY / chExtY : 1;
+        const child = {
+          ox: tf.ox + (offX - chOffX * gx) * tf.sx,
+          oy: tf.oy + (offY - chOffY * gy) * tf.sy,
+          sx: tf.sx * gx,
+          sy: tf.sy * gy,
+        };
+        collectDrawables(inner, child, out, true);
+        grpStart = -1;
+      }
+      continue;
+    }
+    if (depth > 0) continue; // 그룹 내부는 위 재귀에서 처리
+    out.push({ kind: t.startsWith('<p:sp>') ? 'sp' : 'pic', block: t, tf, inGroup });
+  }
+}
+
+// slide XML → shape/pic/table 구조 (그룹 안 도형 포함, 전부 절대 좌표)
 export function parseSlideShapes(slideXml, slideSize) {
-  const shapes = blocksOf(slideXml, 'sp')
-    .map((block) => {
-      const box = rawBox(block);
+  const treeMatch = slideXml.match(/<p:spTree[^>]*>([\s\S]*?)<\/p:spTree>/);
+  const tree = treeMatch ? treeMatch[1] : slideXml;
+  const drawables = [];
+  collectDrawables(tree, { ox: 0, oy: 0, sx: 1, sy: 1 }, drawables);
+
+  const absBox = (block, tf) => {
+    const b = rawBox(block);
+    return {
+      x: Math.round(tf.ox + b.x * tf.sx),
+      y: Math.round(tf.oy + b.y * tf.sy),
+      w: Math.round(b.w * tf.sx),
+      h: Math.round(b.h * tf.sy),
+    };
+  };
+
+  const shapes = drawables
+    .filter((d) => d.kind === 'sp')
+    .map(({ block, tf, inGroup }) => {
+      const box = absBox(block, tf);
       const text = joinedText(block);
       return {
         text,
@@ -127,14 +204,16 @@ export function parseSlideShapes(slideXml, slideSize) {
         name: decodeXml(attr(block, 'name')),
         box,
         bbox: percentBox(box, slideSize),
+        fromGroup: Boolean(inGroup),
         isGroupLabel: (box.w === 0 && box.h === 0) || (box.x === 0 && box.y === 0),
       };
     })
     .filter((shape) => shape.text);
 
-  const pics = blocksOf(slideXml, 'pic')
-    .map((block) => {
-      const box = rawBox(block);
+  const pics = drawables
+    .filter((d) => d.kind === 'pic')
+    .map(({ block, tf }) => {
+      const box = absBox(block, tf);
       const areaRatio = slideSize.cx && slideSize.cy ? (box.w * box.h) / (slideSize.cx * slideSize.cy) : 0;
       return {
         name: decodeXml(attr(block, 'name')),
@@ -162,6 +241,12 @@ export function classifyRole(parsed, slideNumber) {
   const titleLike = bodyTextShapes.some((s) => MANUAL_TITLE_RE.test(s.text) && s.text.length <= 30);
   const sparse = bodyTextShapes.length <= 3;
   if (!steps && (slideNumber <= 2 || COVER_RE.test(joined) || (titleLike && sparse))) return 'cover';
+  // 챕터 표지: 큰 챕터 숫자("01."~, h≥6% — 실측: 챕터 10.7~12.0 vs 뱃지 ≤4.7)가 있으면
+  // 우측 메뉴의 "3-1. 매출캘린더" 같은 라벨이 스텝으로 오인되더라도 표지다.
+  const bigNumberShape = parsed.shapes.some(
+    (s) => !s.isGroupLabel && NUMBER_ONLY_RE.test(s.text) && s.bbox.height >= 6,
+  );
+  if (bigNumberShape) return 'section';
   const numberShape = parsed.shapes.some((s) => NUMBER_ONLY_RE.test(s.text));
   if (!steps && numberShape) return 'section';
   return 'content';
@@ -254,25 +339,30 @@ function splitInlineSteps(text) {
 //  - 본문 이미지 갤러리 영역과 겹치는 짧은 라벨: 이미지 캡션(가운데여도 잡힘 — 밴드 의존 X)
 // 스텝/문장/긴 텍스트/콜아웃 헤더(유의·참고)는 위치와 무관하게 본문으로 보존한다.
 function makeIsStrayLabel(parsed) {
-  let gx0 = 100, gy0 = 100, gx1 = 0, gy1 = 0, hasPics = false;
-  for (const p of parsed.pics) {
-    if (p.areaRatio < 0.005) continue; // 장식 아이콘 제외, 본문 썸네일만
-    hasPics = true;
-    gx0 = Math.min(gx0, p.bbox.left);
-    gy0 = Math.min(gy0, p.bbox.top);
-    gx1 = Math.max(gx1, p.bbox.left + p.bbox.width);
-    gy1 = Math.max(gy1, p.bbox.top + p.bbox.height);
-  }
+  // 불변 레이아웃: 왼쪽 = 이미지 판(우변 ≤64.3%), 본문 컬럼은 66.2%~ 에서 시작.
+  // 따라서 "판 측" 판정은 이미지 합집합(갤러리)이 아니라 중심 x ≤ 65.5% 하나로 충분하다.
+  // (갤러리 합집합 방식은 ①우측 참조 이미지가 섞이면 본문 컬럼을 덮어 본문이 증발하고
+  //  ②판 아래 캡션("▲설정 적용 예시" 등)은 이미지 합집합 밖이라 못 걸렀다 — 실측으로 폐기)
+  const PLATE_MAX_CENTER_X = 65.5;
+  const hasPics = parsed.pics.some((p) => p.areaRatio >= 0.005); // 장식 아이콘 제외
+  const onPlateSide = (s) => hasPics && s.bbox.left + s.bbox.width / 2 <= PLATE_MAX_CENTER_X;
   return function isStrayLabel(s) {
+    // 최상단 밴드는 제목·브레드크럼 전용 영역 — "2. 키오스크 화면설명" 같은 번호 달린
+    // 브레드크럼이 스텝으로 승격돼 본문을 삼키는 것 방지. 판정은 **중심 y** 기준:
+    // 우측 본문 텍스트박스는 위(T5~10)에서 시작해도 키가 커서 중심이 40% 부근이고,
+    // 브레드크럼은 중심까지 상단(≈12%)에 있다. top 기준으로 하면 본문 통째 증발(실측 5장).
+    if (s.bbox.top + s.bbox.height / 2 < 16) return true;
+    // 판 측 "그룹" 텍스트(말풍선·주석·캡션·그룹 라벨)는 스텝 형태여도 무조건 픽셀 —
+    // 시각 덩어리의 일부다. (그룹이어도 우측 본문 컬럼이면 본문으로 계속 — 예: 키오#46 설명)
+    if (s.fromGroup && onPlateSide(s)) return true;
     if (s.paragraphs.some((p) => STEP_RE.test(p))) return false;
     if (TIP_HEADER_RE.test(s.text.trim())) return false;
     if (SENTENCE_END_RE.test(s.text)) return false;
     if (s.text.length > 20) return false;
     if (s.bbox.top < 28) return true;
-    if (!hasPics) return false;
-    const cx = s.bbox.left + s.bbox.width / 2;
-    const cy = s.bbox.top + s.bbox.height / 2;
-    return cx >= gx0 && cx <= gx1 && cy >= gy0 && cy <= gy1; // 갤러리 영역 안 = 캡션
+    // 톱레벨 짧은 라벨(비문장·≤20자)이 판 측 = 이미지 위 라벨/캡션
+    if (onPlateSide(s)) return true;
+    return false;
   };
 }
 
