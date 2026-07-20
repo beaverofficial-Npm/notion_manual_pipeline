@@ -200,6 +200,22 @@ export function extractContentFunctionName(parsed) {
       !s.paragraphs.some((p) => STEP_RE.test(p)),
   );
   candidates.sort((a, b) => a.bbox.top - b.bbox.top || a.bbox.left - b.bbox.left);
+  // 브레드크럼 예외: 맨 위 후보가 작은 라벨이고, 같은 열 바로 아래에 훨씬 큰(1.8×↑) 텍스트가
+  // 붙어 있으면(간격<2.5%) 그 아래 큰 것이 실제 제목이다. (실측: 브레드크럼 h2.6% + 제목 h5.4%, 간격 0.5%)
+  // 그 외에는 기존 "맨 위" 규칙 유지 — 전수 스캔에서 넓은 규칙(최대높이)은 다른 덱 36곳을 역행시켰음.
+  if (candidates.length >= 2) {
+    const a = candidates[0];
+    const b = candidates[1];
+    const gap = b.bbox.top - (a.bbox.top + a.bbox.height);
+    const sameColumn = Math.abs(a.bbox.left - b.bbox.left) < 5;
+    // 크기 가드: 브레드크럼은 작고(h≤3.5), 제목은 제목 크기(h≤7)여야 한다.
+    // (없으면 여러 줄 문장·본문 컨테이너(h 8.9~66 실측)가 제목으로 승격되는 오발동)
+    const aIsSmallLabel = (a.bbox.height ?? 99) <= 3.5;
+    const bIsTitleSized = (b.bbox.height ?? 99) <= 7;
+    if (sameColumn && gap < 2.5 && aIsSmallLabel && bIsTitleSized && (b.bbox.height ?? 0) >= (a.bbox.height ?? 0) * 1.8) {
+      return b.text;
+    }
+  }
   if (candidates[0]) return candidates[0].text;
 
   const groupLabel = parsed.shapes.find((s) => s.isGroupLabel)?.text;

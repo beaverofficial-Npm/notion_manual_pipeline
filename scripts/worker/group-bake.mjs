@@ -190,9 +190,10 @@ export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
 export function boxCaptureRect(box, parsed) {
   let x0 = box.xFrac * 100, y0 = box.yFrac * 100;
   let x1 = x0 + box.wFrac * 100, y1 = y0 + box.hFrac * 100;
-  const boxR = { l: x0, t: y0, r: x1, b: y1 };
+  // 딱 맞닿아 이어지는(스택) 조각도 잇도록 약간의 여유를 두고 교차 판정한다.
+  const EPS = 0.5; // %
   const intersects = (bb) =>
-    bb.left < boxR.r && bb.left + bb.width > boxR.l && bb.top < boxR.b && bb.top + bb.height > boxR.t;
+    bb.left < x1 + EPS && bb.left + bb.width > x0 - EPS && bb.top < y1 + EPS && bb.top + bb.height > y0 - EPS;
   const grow = (bb) => {
     x0 = Math.min(x0, bb.left);
     y0 = Math.min(y0, bb.top);
@@ -200,14 +201,33 @@ export function boxCaptureRect(box, parsed) {
     y1 = Math.max(y1, bb.top + bb.height);
   };
 
+  // 확장 후보: 실제 이미지 + 짧은 라벨(뱃지). 본문/설명문(>20자)은 확장 대상 아님.
+  const candidates = [];
   for (const p of parsed?.pics ?? []) {
     if ((p.areaRatio ?? 0) < 0.005) continue; // 장식 아이콘 제외
-    if (intersects(p.bbox)) grow(p.bbox);
+    if (p.bbox) candidates.push(p.bbox);
   }
   for (const s of parsed?.shapes ?? []) {
     if (s.isGroupLabel) continue;
-    if (s.text.length > 20) continue; // 본문/설명문 컬럼은 확장 대상 아님
-    if (intersects(s.bbox)) grow(s.bbox);
+    if ((s.text ?? '').length > 20) continue;
+    if (s.bbox) candidates.push(s.bbox);
+  }
+
+  // 연쇄(transitive) 합집합: 박스에 직접 걸친 조각뿐 아니라, 그렇게 포함된 조각에 이어 붙은
+  // 다음 조각까지 흡수될 때까지 반복한다. (긴 스크린샷이 위/아래 pic 으로 쪼개져 아래 조각이
+  // 박스 밖에서 시작하는 덱에서 아래 조각이 통째로 잘리던 문제의 근본 수정)
+  const used = new Set();
+  for (let pass = 0; pass < 10; pass += 1) {
+    let grew = false;
+    for (let i = 0; i < candidates.length; i += 1) {
+      if (used.has(i)) continue;
+      if (intersects(candidates[i])) {
+        grow(candidates[i]);
+        used.add(i);
+        grew = true;
+      }
+    }
+    if (!grew) break;
   }
 
   const PAD = 0.8; // % 여백

@@ -423,7 +423,10 @@ export async function runOnce(jobIdArg) {
           if (!preParsed.pics.some((p) => p.areaRatio >= 0.005)) continue;
           const rawBoxes = parseImageBoxes(xml, await layoutXmlFor(entry), slideSize);
           if (!rawBoxes.length) continue;
-          const stripped = stripOutsideTextShapes(xml, rawBoxes[0], slideSize);
+          // strip 기준은 원시 박스가 아니라 "확장된 크롭"(연쇄 합집합) — 박스 밖에서 이어지는
+          // 아래 스크린샷 조각의 라벨/뱃지가 본문 텍스트로 오인돼 렌더에서 지워지지 않게.
+          const captureRect = boxCaptureRect(rawBoxes[0], preParsed);
+          const stripped = stripOutsideTextShapes(xml, captureRect, slideSize);
           if (stripped) modified.push({ entry, xml: stripped });
         }
         if (modified.length) {
