@@ -12,7 +12,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, stripOutsideTextShapes, extendCropRightByPixels, cropGroups } from './group-bake.mjs';
+import { parseGroupBoxes, parseImageBoxes, boxCropRect, stripOutsideTextShapes, cropGroups } from './group-bake.mjs';
 import { workerLabel } from './worker-identity.mjs';
 import { downloadSource as downloadSourceFromR2, putObject as putObjectR2, deleteObjects as deleteObjectsR2, listPrefix as listPrefixR2 } from './source-storage.mjs';
 
@@ -413,22 +413,45 @@ export async function runOnce(jobIdArg) {
     // 사본 PPTX 를 만들어 따로 렌더한다 — 크롭 안에 본문 글자가 픽셀로도 존재하지 않게.
     // (마스킹/클램프로는 본문 컬럼까지 걸쳐 그린 말풍선과 본문 글자를 분리할 수 없음)
     const slideXmlByEntry = new Map();
+    const chosenBoxByEntry = new Map(); // 슬라이드별 확정 이미지박스(감지 or 덱 표준 판)
     let strippedRendered = null;
     if (conversionMode === 'group_bake') {
       try {
-        const modified = [];
+        // pass A: 전 슬라이드 박스 감지 + 덱 표준 판(최빈 좌표) 산출
+        const preInfo = [];
+        const freq = new Map();
         for (const entry of slideEntries) {
+          const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
           const xml = await unzipText(pptPath, entry);
           slideXmlByEntry.set(entry, xml);
           const preParsed = parseSlideShapes(xml, slideSize);
-          if (!preParsed.pics.some((p) => p.areaRatio >= 0.005)) continue;
-          const rawBoxes = parseImageBoxes(xml, await layoutXmlFor(entry), slideSize);
-          if (!rawBoxes.length) continue;
-          // strip 기준은 원시 박스가 아니라 "확장된 크롭"(연쇄 합집합) — 박스 밖에서 이어지는
-          // 아래 스크린샷 조각의 라벨/뱃지가 본문 텍스트로 오인돼 렌더에서 지워지지 않게.
-          const captureRect = boxCaptureRect(rawBoxes[0], preParsed);
-          const stripped = stripOutsideTextShapes(xml, captureRect, slideSize);
-          if (stripped) modified.push({ entry, xml: stripped });
+          const role = classifyRole(preParsed, slideNumber);
+          const hasPics = preParsed.pics.some((p) => p.areaRatio >= 0.005);
+          const rawBox = parseImageBoxes(xml, await layoutXmlFor(entry), slideSize)[0] ?? null;
+          preInfo.push({ entry, xml, role, hasPics, rawBox });
+          if (rawBox) {
+            const key = [rawBox.xFrac, rawBox.yFrac, rawBox.wFrac, rawBox.hFrac].map((v) => v.toFixed(3)).join(',');
+            const cur = freq.get(key) ?? { count: 0, box: rawBox };
+            cur.count += 1;
+            freq.set(key, cur);
+          }
+        }
+        // 덱 표준 판 = 최빈 박스(3장 이상일 때만 신뢰) — 박스 미감지 content 슬라이드의 폴백.
+        // "크롭은 왼쪽 이미지박스로 항상 통일" 규칙: 미감지 슬라이드도 판 좌표로 자른다.
+        let modeEntry = null;
+        for (const v of freq.values()) {
+          if (v.count >= 3 && (!modeEntry || v.count > modeEntry.count)) modeEntry = v;
+        }
+        const modeBox = modeEntry?.box ?? null;
+        // pass B: 슬라이드별 확정 박스 + 본문 텍스트 스트립(기준 = 원시 박스 — 판 밖 본문은 무조건 제거)
+        const modified = [];
+        for (const info of preInfo) {
+          const box = info.rawBox ?? (info.role === 'content' && info.hasPics ? modeBox : null);
+          if (!box) continue;
+          chosenBoxByEntry.set(info.entry, box);
+          if (info.role !== 'content' || !info.hasPics) continue;
+          const stripped = stripOutsideTextShapes(info.xml, box, slideSize);
+          if (stripped) modified.push({ entry: info.entry, xml: stripped });
         }
         if (modified.length) {
           const stageDir = path.join(tmpDir, 'strip-src');
@@ -478,13 +501,11 @@ export async function runOnce(jobIdArg) {
           const localRender = renderedSlides[slideNumber - 1];
           const hasRealPics = parsed.pics.some((p) => p.areaRatio >= 0.005);
 
-          // 1순위: 이미지 박스(슬라이드/레이아웃의 이미지 컨테이너) 기준 크롭.
-          //        빈 박스를 굽지 않도록 실제 이미지가 있는 슬라이드에서만 쓰고,
-          //        박스 밖으로 살짝 넘친 이미지(우측 갤러리·하단 내비 등)는 합집합으로 포함해 잘림을 막는다.
-          const rawImageBoxes = hasRealPics ? parseImageBoxes(slideXml, await layoutXmlFor(entry), slideSize) : [];
-          // 확정 규칙(BOX_CAPTURE_HANDOFF.md): 이미지박스 구간 그대로 + 판에 걸친 요소 합집합.
-          let boxes = rawImageBoxes.map((b) => boxCaptureRect(b, parsed));
-          let labelOf = (i) => `이미지 박스${boxes.length > 1 ? ` ${i + 1}` : ''}`;
+          // 확정 규칙(성빈님): 크롭 = 왼쪽 이미지박스(연회색 판) 그 영역만 — 슬라이드당 1장.
+          //   합집합·연쇄·픽셀확장 없음. 미감지 슬라이드는 프리패스의 덱 표준 판 사용.
+          const chosenBox = hasRealPics ? chosenBoxByEntry.get(entry) ?? null : null;
+          let boxes = chosenBox ? [boxCropRect(chosenBox, parsed)] : [];
+          let labelOf = () => '이미지 박스';
 
           // 2순위: 그룹(grpSp) bbox — 이미지 박스가 없는 덱의 기존 동작.
           if (!boxes.length) {
@@ -506,13 +527,7 @@ export async function runOnce(jobIdArg) {
           }
 
           if (boxes.length > 0 && localRender) {
-            // 이미지박스 경로: 본문 텍스트가 제거된 스트립 렌더에서 크롭 —
-            // 말풍선 등 시각요소 무손실 + 본문 글자 조각 0.
-            if (rawImageBoxes.length > 0 && strippedRendered) {
-              // 그룹-로컬 좌표라 못 잡는 요소(말풍선 오른변 등)를 픽셀 스캔으로 포함
-              // (렌더가 스트립본일 때만 — 본문 텍스트가 남아있으면 스캔이 텍스트까지 확장함)
-              boxes = await Promise.all(boxes.map((b) => extendCropRightByPixels(localRender, b)));
-            }
+            // 스트립 렌더(본문 텍스트 제거본)에서 판 영역만 크롭.
             const croppedPaths = await cropGroups(localRender, boxes, tmpDir, slideNumber);
             screenshots = croppedPaths.map((croppedPath, index) => ({
               label: labelOf(index),

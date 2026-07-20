@@ -160,6 +160,9 @@ export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
       const wFrac = cx / slideSizeEmu.cx;
       const hFrac = cy / slideSizeEmu.cy;
       if (wFrac < 0.3 || hFrac < 0.3) continue; // 이미지 컨테이너 크기 미만은 장식/뱃지 — 스킵
+      // 이미지박스는 항상 "왼쪽 판"이다 — 중심이 슬라이드 오른쪽 절반이면 텍스트 패널 배경이므로 제외.
+      const centerX = (x + cx / 2) / slideSizeEmu.cx;
+      if (centerX > 0.5) continue;
       boxes.push({
         xFrac: Number((x / slideSizeEmu.cx).toFixed(6)),
         yFrac: Number((y / slideSizeEmu.cy).toFixed(6)),
@@ -167,75 +170,50 @@ export function parseImageBoxes(slideXml, layoutXml, slideSizeEmu) {
         hFrac: Number(hFrac.toFixed(6)),
       });
     }
-    if (boxes.length) return boxes; // 슬라이드에서 찾으면 레이아웃은 안 본다
+    if (boxes.length) {
+      // 후보가 여럿이어도 판은 하나 — 가장 큰 것 하나만 쓴다(호출부는 [0] 사용).
+      boxes.sort((a, b) => b.wFrac * b.hFrac - a.wFrac * a.hFrac);
+      return boxes;
+    }
   }
   return [];
 }
 
 /**
- * boxCaptureRect(box, parsed)
+ * bodyTextLeftBoundary(parsed, box)
  *
- * 확정 규칙(2026-07-13, docs/planning/BOX_CAPTURE_HANDOFF.md — 재논의 금지):
- * 크롭 = **이미지박스 구간 그대로**. 콘텐츠 범위를 추정해 깎는 로직(콘텐츠 타이트·우측 클램프)은
- * 시각 덩어리(스크린샷+콜아웃 박스+뱃지+화살표+말풍선)를 관통해 폐기했다.
- * 단, 저자가 판 밖으로 살짝 얹는 요소가 잘리지 않게 박스와 "겹치는" 것만 합집합으로 포함한다:
- *  - 겹치는 이미지(pics, areaRatio ≥ 0.005 — 장식 아이콘 제외)
- *  - 겹치는 짧은 라벨 shape(텍스트 ≤ 20자 — 뱃지·헤더칩류; 본문 텍스트 컬럼은 길어서 제외됨)
- * 프로덕션 워커와 테스트 하니스가 이 함수 하나를 같이 쓴다.
+ * 판 오른쪽 본문 텍스트 컬럼의 시작(left, %). 없으면 null.
+ * 크롭 우측 이중 안전컷의 기준으로만 쓴다.
+ */
+export function bodyTextLeftBoundary(parsed, box) {
+  const boxR = (box.xFrac + box.wFrac) * 100;
+  const lefts = (parsed?.shapes ?? [])
+    .filter((s) => !s.isGroupLabel && (s.text ?? '').length > 20 && s.bbox.left > boxR)
+    .map((s) => s.bbox.left);
+  return lefts.length ? Math.min(...lefts) : null;
+}
+
+/**
+ * boxCropRect(box, parsed)
  *
- * @param {object} box — { xFrac, yFrac, wFrac, hFrac } (이미지 박스)
- * @param {object} parsed — parseSlideShapes 결과 ({ shapes, pics })
+ * 확정 규칙(성빈님, 재논의 금지): **크롭 = 왼쪽 이미지박스(연회색 판) 그 영역만.**
+ * 주변 요소를 살리려는 합집합·연쇄·픽셀확장은 전부 폐기 — 그 예외들이 사고의 근원이었다.
+ * 판보다 삐져나온 요소는 판 끝에서 잘린다(작성 규약의 영역 — 코드가 판단하지 않는다).
+ *
+ * rect = 판 ± PAD(0.8%). 우측은 본문 텍스트 직전(-0.3%)을 절대 못 넘는 이중 안전컷.
+ *
+ * @param {object} box — { xFrac, yFrac, wFrac, hFrac } (이미지박스)
+ * @param {object} parsed — parseSlideShapes 결과 (우측 텍스트 경계 산출용)
  * @returns {object} { xFrac, yFrac, wFrac, hFrac }
  */
-export function boxCaptureRect(box, parsed) {
-  let x0 = box.xFrac * 100, y0 = box.yFrac * 100;
-  let x1 = x0 + box.wFrac * 100, y1 = y0 + box.hFrac * 100;
-  // 딱 맞닿아 이어지는(스택) 조각도 잇도록 약간의 여유를 두고 교차 판정한다.
-  const EPS = 0.5; // %
-  const intersects = (bb) =>
-    bb.left < x1 + EPS && bb.left + bb.width > x0 - EPS && bb.top < y1 + EPS && bb.top + bb.height > y0 - EPS;
-  const grow = (bb) => {
-    x0 = Math.min(x0, bb.left);
-    y0 = Math.min(y0, bb.top);
-    x1 = Math.max(x1, bb.left + bb.width);
-    y1 = Math.max(y1, bb.top + bb.height);
-  };
-
-  // 확장 후보: 실제 이미지 + 짧은 라벨(뱃지). 본문/설명문(>20자)은 확장 대상 아님.
-  const candidates = [];
-  for (const p of parsed?.pics ?? []) {
-    if ((p.areaRatio ?? 0) < 0.005) continue; // 장식 아이콘 제외
-    if (p.bbox) candidates.push(p.bbox);
-  }
-  for (const s of parsed?.shapes ?? []) {
-    if (s.isGroupLabel) continue;
-    if ((s.text ?? '').length > 20) continue;
-    if (s.bbox) candidates.push(s.bbox);
-  }
-
-  // 연쇄(transitive) 합집합: 박스에 직접 걸친 조각뿐 아니라, 그렇게 포함된 조각에 이어 붙은
-  // 다음 조각까지 흡수될 때까지 반복한다. (긴 스크린샷이 위/아래 pic 으로 쪼개져 아래 조각이
-  // 박스 밖에서 시작하는 덱에서 아래 조각이 통째로 잘리던 문제의 근본 수정)
-  const used = new Set();
-  for (let pass = 0; pass < 10; pass += 1) {
-    let grew = false;
-    for (let i = 0; i < candidates.length; i += 1) {
-      if (used.has(i)) continue;
-      if (intersects(candidates[i])) {
-        grow(candidates[i]);
-        used.add(i);
-        grew = true;
-      }
-    }
-    if (!grew) break;
-  }
-
-  const PAD = 0.8; // % 여백
-  x0 = Math.max(0, x0 - PAD);
-  y0 = Math.max(0, y0 - PAD);
-  x1 = Math.min(100, x1 + PAD);
-  y1 = Math.min(100, y1 + PAD);
-
+export function boxCropRect(box, parsed) {
+  const PAD = 0.8; // %
+  const x0 = Math.max(0, box.xFrac * 100 - PAD);
+  const y0 = Math.max(0, box.yFrac * 100 - PAD);
+  let x1 = Math.min(100, (box.xFrac + box.wFrac) * 100 + PAD);
+  const y1 = Math.min(100, (box.yFrac + box.hFrac) * 100 + PAD);
+  const textL = bodyTextLeftBoundary(parsed, box);
+  if (textL !== null) x1 = Math.min(x1, textL - 0.3); // 본문 텍스트는 어떤 경우에도 침범 불가
   return {
     xFrac: Number((x0 / 100).toFixed(6)),
     yFrac: Number((y0 / 100).toFixed(6)),
@@ -298,56 +276,6 @@ export function stripOutsideTextShapes(slideXml, box, slideSizeEmu) {
   let newTree = tree;
   for (const block of removals) newTree = newTree.replace(block, '');
   return slideXml.replace(tree, newTree);
-}
-
-/**
- * extendCropRightByPixels(strippedPngPath, rect)
- *
- * 그룹 안 요소(말풍선 등)는 좌표가 그룹-로컬이라 XML 로는 오른끝을 알 수 없다.
- * 본문 텍스트가 제거된 "스트립 렌더"에서 크롭 우측 바깥을 픽셀 스캔해,
- * 크롭 경계에 이어져 있는 비백색 콘텐츠(점선 테두리 등)까지 크롭을 확장한다.
- * (스트립 렌더 전제 — 본문 글자가 없으므로 확장해도 텍스트가 딸려올 수 없음.
- *  1.5% 이상 흰 공백이 나오면 중단해 멀리 있는 장식은 끌려오지 않음. 최대 +8%.)
- *
- * @param {string} strippedPngPath — 본문 제거 렌더 PNG
- * @param {object} rect — 현재 크롭 { xFrac, yFrac, wFrac, hFrac }
- * @returns {object} 확장된 rect
- */
-export async function extendCropRightByPixels(strippedPngPath, rect) {
-  const meta = await sharp(strippedPngPath).metadata();
-  const W = meta.width ?? 0, H = meta.height ?? 0;
-  if (!W || !H) return rect;
-  const rectR = Math.round((rect.xFrac + rect.wFrac) * W);
-  // 크롭 경계 안쪽 1.5%부터 바깥 +8%까지 스캔 — "경계에 딱 붙은" 콘텐츠(점선 오른변 등)도 잡는다.
-  const x0 = Math.max(0, rectR - Math.round(0.015 * W));
-  const extW = Math.min(W - x0, Math.round(0.095 * W));
-  if (extW <= 2) return rect;
-  const y0 = Math.max(0, Math.round(rect.yFrac * H));
-  const extH = Math.max(1, Math.min(H - y0, Math.round(rect.hFrac * H)));
-
-  const buf = await sharp(strippedPngPath)
-    .extract({ left: x0, top: y0, width: extW, height: extH })
-    .greyscale()
-    .raw()
-    .toBuffer();
-
-  const maxGap = Math.max(2, Math.round(0.015 * W));
-  let gap = 0;
-  let last = -1;
-  for (let x = 0; x < extW; x += 1) {
-    let has = false;
-    for (let y = 0; y < extH; y += 1) {
-      if (buf[y * extW + x] < 245) { has = true; break; }
-    }
-    if (has) { last = x; gap = 0; }
-    else { gap += 1; if (gap > maxGap) break; }
-  }
-  if (last < 0) return rect;
-
-  // 마지막 콘텐츠 열 뒤에 0.7% 숨통을 보장(경계에 붙은 테두리가 잘려 보이지 않게)
-  const newR = Math.min(1, (x0 + last + 1) / W + 0.007);
-  if (newR <= rect.xFrac + rect.wFrac) return rect;
-  return { ...rect, wFrac: Number((newR - rect.xFrac).toFixed(6)) };
 }
 
 /**
