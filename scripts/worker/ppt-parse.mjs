@@ -229,12 +229,24 @@ export function extractContentFunctionName(parsed) {
 // 한 문단에 "1. … 2. … 3. …" 처럼 스텝이 줄바꿈 없이 붙어 있으면 경계에서 쪼갠다.
 // 경계 = 직전 문자가 문장끝/공백/괄호 + 숫자 + .) + 공백. ("9.2" 같은 소수점은 뒤 공백이 없어 안 쪼개짐.)
 function splitInlineSteps(text) {
-  // 직전이 숫자/하이픈이 아니면 스텝마커 앞에서 쪼갠다.
-  // "선택2)"처럼 붙은 건 분리하되, "10."·"3.5"(숫자 중간)·"1-1."(계층번호)은 안 쪼개짐.
-  return text
-    .split(/(?<![\d-])(?=\d{1,2}[.)]\s)/)
-    .map((p) => p.trim())
-    .filter(Boolean);
+  // 문단 안에 "1. … 2. …"처럼 붙은 스텝을 경계에서 쪼갠다.
+  // 분리 조건: 직전 문자가 숫자/하이픈 아님("10."·"3.5"·"1-1." 보호) + **괄호 밖**일 것.
+  // 괄호 안 숫자 "(참고1)"·"비고(주1)"은 스텝 마커가 아니다 — 쪼개면 "(참고 / 1)…"로 줄이 깨진다.
+  const parts = [];
+  let start = 0;
+  let depth = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === '(' || ch === '（' || ch === '[' || ch === '【') depth += 1;
+    else if (ch === ')' || ch === '）' || ch === ']' || ch === '】') { if (depth > 0) depth -= 1; }
+    if (depth > 0) continue;
+    if (i > start && /\d/.test(ch) && !/[\d-]/.test(text[i - 1]) && /^\d{1,2}[.)]\s/.test(text.slice(i))) {
+      parts.push(text.slice(start, i));
+      start = i;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts.map((p) => p.trim()).filter(Boolean);
 }
 
 // 본문이 아닌 라벨/캡션 판별:
