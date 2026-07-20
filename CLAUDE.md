@@ -1,5 +1,7 @@
 # Notion Manual Pipeline — 프로젝트 진입 (Claude Code)
 
+> **⚠️ 세션 시작·컴팩션 후 필수(치매 방지)**: 상태 발언·작업 전에 반드시 `docs/planning/SESSION_STATE.md` 를 먼저 읽고, `git log --oneline -10`·현재 브랜치·실행 프로세스로 현재를 재동기화한다. **과거 기억으로 배포/환경 상태를 단정하지 말 것** — 이 프로젝트는 다른 세션들이 병행 작업하며 빠르게 변한다. 상태를 바꾼 세션은 SESSION_STATE.md 를 갱신하고 떠난다.
+
 이 프로젝트는 Work_hub 전역 **오케스트레이션 운영 모델**을 따르고, 아래 항목으로 **특화**한다.
 전역 골격: `../../../ai-context/orchestration-operating-model.md` (오케스트레이터 + 6 페르소나·게이트 철학·하니스 규칙·팬아웃 한도 ≤2~3).
 
