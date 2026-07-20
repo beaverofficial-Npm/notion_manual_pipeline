@@ -16,3 +16,6 @@ supabase/.temp
 docs/*.pptx
 docs/*.ppt
 .env.staging
+
+# MS Office 임시 잠금파일
+~$*
