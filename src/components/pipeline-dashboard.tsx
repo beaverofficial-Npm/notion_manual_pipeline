@@ -380,6 +380,8 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
   const [submitStep, setSubmitStep] = useState('');
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [runningTaskId, setRunningTaskId] = useState('');
+  // 변환기(워커) 생존 상태 — 15초 폴링. 오프라인이면 업로드해도 변환이 잠들므로 화면에 명확히 알린다.
+  const [workerStatus, setWorkerStatus] = useState<{ online: boolean; version?: string | null } | null>(null);
   const [publishingTaskId, setPublishingTaskId] = useState('');
   const [deletingTaskId, setDeletingTaskId] = useState('');
   const [cancellingTaskId, setCancellingTaskId] = useState('');
@@ -470,6 +472,25 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
     ...styles.taskActions,
     justifyContent: isNarrow ? 'flex-start' : styles.taskActions.justifyContent,
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function poll() {
+      try {
+        const res = await fetch('/api/worker/status', { cache: 'no-store' });
+        const data = (await res.json()) as { online: boolean; worker?: { version?: string | null } | null };
+        if (!cancelled) setWorkerStatus({ online: Boolean(data.online), version: data.worker?.version ?? null });
+      } catch {
+        if (!cancelled) setWorkerStatus({ online: false });
+      }
+    }
+    poll();
+    const timer = setInterval(poll, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   async function handleStartConversion() {
     if (!selectedFile || isSubmitting) return;
@@ -852,6 +873,29 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             <span style={styles.smallText}>{projects.length}개</span>
           </div>
           <div style={styles.taskList}>
+            {workerStatus && (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  marginBottom: 8,
+                  borderRadius: 8,
+                  fontSize: 13,
+                  background: workerStatus.online ? sc.success.bg : sc.error.bg,
+                  color: workerStatus.online ? sc.success.text : sc.error.text,
+                  border: `1px solid ${workerStatus.online ? sc.success.border : sc.error.border}`,
+                }}
+              >
+                <span style={{ fontWeight: 600 }}>{workerStatus.online ? '● 변환기 온라인' : '● 변환기 오프라인'}</span>
+                {workerStatus.online ? (
+                  workerStatus.version ? <span style={{ opacity: 0.8 }}>버전 {workerStatus.version}</span> : null
+                ) : (
+                  <span>지금 업로드하면 변환이 시작되지 않습니다 — 관리자에게 알려주세요.</span>
+                )}
+              </div>
+            )}
             {projects.length === 0 ? (
               <div style={styles.emptyState}>생성된 작업이 없습니다.</div>
             ) : (
@@ -861,6 +905,14 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                 const isDeleting = deletingTaskId === project.id;
                 const isBusy = project.status === 'running' || project.status === 'publishing' || isRunning || isPublishing;
                 const canRun = !isBusy && !isDeleting;
+                // 같은 제목 중복 시 가장 최근 업로드에만 '최신' 표시 — 옛 카드 오클릭 방지
+                const hasDupTitle = projects.some((p) => p.id !== project.id && p.title === project.title);
+                const isNewestDup =
+                  hasDupTitle && !projects.some((p) => p.title === project.title && p.createdAt > project.createdAt);
+                // 변환 요청이 큐에서 2분+ 방치 = 워커가 안 집어가는 상태
+                const queuedStale =
+                  project.latestJob?.status === 'queued' &&
+                  Date.now() - new Date(project.latestJob.created_at).getTime() > 2 * 60 * 1000;
                 const canReview =
                   project.totalSlides > 0 &&
                   (project.status === 'review_required' || project.status === 'ready_to_publish' || project.status === 'published') &&
@@ -890,6 +942,20 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                         ) : (
                           <div style={styles.taskTitleRow}>
                             <strong style={styles.taskTitle}>{project.title}</strong>
+                            {isNewestDup && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  padding: '2px 6px',
+                                  borderRadius: 6,
+                                  background: sc.primary.bg,
+                                  color: sc.primary.default,
+                                }}
+                              >
+                                최신
+                              </span>
+                            )}
                             <Button
                               variant="text"
                               size="sm"
@@ -910,6 +976,12 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
                           <span>추출 {project.status === 'running' && project.assetCount === 0 ? '분석 중' : `${project.assetCount}개`}</span>
                           <span style={styles.taskInfoDot}>·</span>
                           <span>{project.updatedAt}</span>
+                          {queuedStale && (
+                            <>
+                              <span style={styles.taskInfoDot}>·</span>
+                              <span style={{ color: sc.error.text, fontWeight: 600 }}>변환 대기 중 — 변환기 미응답</span>
+                            </>
+                          )}
                         </span>
                       </div>
                       {statusPill(project.status)}

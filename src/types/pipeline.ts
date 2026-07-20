@@ -46,6 +46,8 @@ export interface ManualProject {
   issueCount: number;
   reviewReasons: ManualReviewWarning[];
   updatedAt: string;
+  createdAt: string; // 같은 제목 중복 시 최신 판별용(ISO)
+  latestJob: { status: string; created_at: string } | null; // 대기 방치 감지용
   slides: ManualSlide[];
 }
 

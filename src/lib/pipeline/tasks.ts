@@ -99,6 +99,7 @@ function buildProject(
   slides: ManualSlideRow[],
   assetsBySlideId: Map<string, ManualAssetRow[]>,
   publishedPageId: string | null,
+  latestJob: { status: string; created_at: string } | null = null,
 ): ManualProject {
   const mappedSlides = slides
     .sort((a, b) => a.slide_number - b.slide_number)
@@ -134,6 +135,8 @@ function buildProject(
     issueCount: mappedSlides.reduce((sum, slide) => sum + slide.warnings.filter((warning) => warning.severity === 'blocking').length, 0),
     reviewReasons,
     updatedAt: formatDate(task.updated_at ?? task.created_at),
+    createdAt: task.created_at,
+    latestJob,
     slides: mappedSlides,
   };
 }
@@ -196,6 +199,17 @@ export async function listManualProjects(): Promise<ManualProject[]> {
     }
   }
 
+  // 대기 방치 감지용: task 별 최신 변환 job (한 번에 가져와 최초 1건만 보관 — created_at desc)
+  const { data: jobRows } = await supabase
+    .from('manual_conversion_jobs')
+    .select('task_id,status,created_at')
+    .in('task_id', taskIds)
+    .order('created_at', { ascending: false });
+  const latestJobByTaskId = new Map<string, { status: string; created_at: string }>();
+  for (const job of (jobRows ?? []) as Array<{ task_id: string; status: string; created_at: string }>) {
+    if (!latestJobByTaskId.has(job.task_id)) latestJobByTaskId.set(job.task_id, { status: job.status, created_at: job.created_at });
+  }
+
   const sourcesByTaskId = new Map<string, string>();
   for (const source of (sources ?? []) as ManualSourceFileRow[]) {
     if (!sourcesByTaskId.has(source.task_id)) {
@@ -224,6 +238,7 @@ export async function listManualProjects(): Promise<ManualProject[]> {
       slidesByTaskId.get(task.id) ?? [],
       assetsBySlideId,
       publishedPageByTaskId.get(task.id) ?? null,
+      latestJobByTaskId.get(task.id) ?? null,
     ),
   );
 }

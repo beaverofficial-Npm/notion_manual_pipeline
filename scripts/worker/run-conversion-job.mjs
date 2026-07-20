@@ -13,6 +13,7 @@ import {
   screenshotCandidates,
 } from './ppt-parse.mjs';
 import { parseGroupBoxes, parseImageBoxes, boxCaptureRect, stripOutsideTextShapes, extendCropRightByPixels, cropGroups } from './group-bake.mjs';
+import { workerLabel } from './worker-identity.mjs';
 import { downloadSource as downloadSourceFromR2, putObject as putObjectR2, deleteObjects as deleteObjectsR2, listPrefix as listPrefixR2 } from './source-storage.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -93,7 +94,7 @@ async function resolveJob(jobIdArg) {
   // (여러 워커/로컬 프로세스가 같은 job 을 집어 이중 처리(중복 키)하는 레이스 방지)
   const { data: claimed, error: claimError } = await supabase
     .from('manual_conversion_jobs')
-    .update({ status: 'running', worker_id: 'claiming', started_at: new Date().toISOString() })
+    .update({ status: 'running', worker_id: workerLabel, started_at: new Date().toISOString() })
     .eq('id', data.id)
     .eq('status', 'queued')
     .select('id')
@@ -361,7 +362,7 @@ export async function runOnce(jobIdArg) {
 
   await supabase
     .from('manual_conversion_jobs')
-    .update({ status: 'running', worker_id: 'local-worker', started_at: new Date().toISOString(), error_message: null })
+    .update({ status: 'running', worker_id: workerLabel, started_at: new Date().toISOString(), error_message: null })
     .eq('id', job.id);
 
   try {
