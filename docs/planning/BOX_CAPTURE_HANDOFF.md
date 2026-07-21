@@ -41,7 +41,7 @@ boxes = boxes.map((b) => contentCropBox(b, parsed)); // ← 이 줄이 원인
 
 ## 5. 검증 방법 (수정 후 필수)
 
-1. 재베이크: 레포 루트에서 `node .tmp/box-crop-test.mjs` (입력 `.tmp/deck-v2.pptx`, 슬라이드 7·11·12·14·36 → `.tmp/boxcrop/`; soffice/pdftoppm는 homebrew 경로 기본값).
+1. 재베이크: Microsoft Graph PowerPoint PDF 결과를 `pdftoppm`으로 렌더한 뒤 실측 고정 박스를 padding 0으로 캡처한다. 현재 자동 검증은 `npm run verify:fixed-crop`을 사용한다.
 2. wh-vision 검증 (육안 판정 금지 훅 있음, **유도 질문 금지 — 중립·비판 질문**):
    - `wh-vision compare .tmp/user-crop-magam.png .tmp/boxcrop/slide-011-group-00.png "…구성요소 나열·잘림/누락 지적…"` → **pass + 잘림 0**이 합격선.
    - 슬라이드 11 inspect: 말풍선 테두리 온전 / 가장자리 본문 조각 / 과도 여백 3항목.

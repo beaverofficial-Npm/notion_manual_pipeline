@@ -21,6 +21,11 @@ SUPABASE_SERVICE_ROLE_KEY=
 NOTION_TOKEN=
 NOTION_MANUAL_DATABASE_ID=
 NOTION_MANUAL_DATA_SOURCE_ID=
+MS_GRAPH_AUTH_MODE=refresh_token
+MS_GRAPH_TENANT_ID=consumers
+MS_GRAPH_CLIENT_ID=
+MS_GRAPH_REFRESH_TOKEN=
+MS_GRAPH_REFRESH_TOKEN_FILE=/data/ms-graph-refresh-token
 ```
 
 ## Supabase Storage Buckets
@@ -58,7 +63,7 @@ Vercel에는 위 환경변수를 동일하게 등록한다.
 
 - `SUPABASE_SERVICE_ROLE_KEY`와 `NOTION_TOKEN`은 서버 전용이다.
 - 클라이언트 컴포넌트에서 service role key를 참조하면 안 된다.
-- PPT 파싱, LibreOffice 렌더링, PDF/PNG 변환은 Vercel API route에서 처리하지 않고 conversion worker로 분리한다.
+- PPT 파싱, Microsoft Graph 업로드/PowerPoint 렌더링, PDF/PNG 변환은 Vercel API route에서 처리하지 않고 conversion worker로 분리한다.
 
 ## Conversion Worker
 
@@ -67,7 +72,7 @@ MVP에서는 local worker로 시작할 수 있다. 운영 전환 시 container r
 역할:
 
 - queued job claim
-- PPTX to PDF 변환
+- Microsoft Graph PowerPoint renderer를 통한 PPTX to PDF 변환
 - slide PNG render
 - PPT object/XML parsing
 - crop/QR/table 후보 생성

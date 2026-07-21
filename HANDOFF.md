@@ -13,7 +13,7 @@ PPT 매뉴얼 파일을 입력받아 슬라이드를 구조화하고, 좌측 이
 구성 요소:
 
 - **웹 애플리케이션 (Next.js App Router)**: PPT 업로드 접수, 변환 작업 큐 등록, 변환 결과 검수 및 발행 UI 제공.
-- **변환 워커 (Node 프로세스, `scripts/worker/poll-loop.mjs`)**: 큐를 폴링하여 변환을 수행한다. LibreOffice(`soffice`)로 PPT를 PDF로 렌더링하고, Poppler(`pdftoppm`)로 페이지를 PNG로 변환하며, `sharp`로 이미지 크롭·가공 후 저장소와 DB에 적재한다.
+- **변환 워커 (Node 프로세스, `scripts/worker/poll-loop.mjs`)**: 큐를 폴링하여 변환을 수행한다. Microsoft Graph의 PowerPoint renderer로 PPT를 PDF로 렌더링하고, Poppler(`pdftoppm`)로 페이지를 PNG로 변환하며, `sharp`로 고정 이미지 박스를 캡처한 뒤 저장소와 DB에 적재한다.
 - **저장소**: GitHub(소스 코드), Supabase(Postgres — 메타데이터 및 작업 큐), Cloudflare R2(원본 PPT 및 변환 이미지 파일), Notion(발행 결과물).
 
 운영 환경에서는 웹과 워커를 하나의 컨테이너에서 함께 실행한다(`scripts/start.sh`).
@@ -36,6 +36,7 @@ PPT 매뉴얼 파일을 입력받아 슬라이드를 구조화하고, 좌측 이
 | Supabase | Postgres(메타데이터·작업 큐) | 프로젝트 Organization 멤버 초대. 키는 프로젝트 Settings → API |
 | Cloudflare R2 | 원본 PPT·변환 이미지 저장 | 계정 및 버킷·API 토큰 구성(4.2) |
 | Notion | 변환 결과 발행 | 내부 통합(Integration) 토큰 및 대상 페이지 연결(4.3) |
+| Microsoft Graph / OneDrive | PowerPoint 렌더링 | Entra app + Files.ReadWrite delegated 또는 app-only 권한 |
 | Railway | 운영 배포(웹+워커) | 프로젝트 멤버 초대. 운영 환경변수 전체가 여기에 설정됨 |
 
 ---
@@ -45,21 +46,20 @@ PPT 매뉴얼 파일을 입력받아 슬라이드를 구조화하고, 좌측 이
 로컬 실행에는 다음이 필요하다.
 
 - Node.js 22 이상, npm
-- LibreOffice (`soffice` 실행 파일) — PPT→PDF 렌더링
+- Microsoft Graph 인증 — PPT→PDF PowerPoint 렌더링
 - Poppler (`pdftoppm`, `pdfinfo`) — PDF→PNG 변환
 - (로컬 Supabase를 사용할 경우) Docker 및 Supabase CLI
-- 한글 폰트(Pretendard 등) — 렌더링 품질 유지. macOS에는 대개 설치되어 있으며, 운영 컨테이너에는 Noto CJK·Nanum·Pretendard가 포함되어 있다.
 
 설치 예시:
 
 ```
 # macOS
-brew install libreoffice poppler
+brew install poppler
 # 로컬 Supabase를 쓸 경우
 brew install supabase/tap/supabase
 
 # Ubuntu/Debian
-apt-get install -y libreoffice-impress poppler-utils fonts-noto-cjk fonts-nanum
+apt-get install -y poppler-utils
 ```
 
 ---
@@ -140,8 +140,11 @@ apt-get install -y libreoffice-impress poppler-utils fonts-noto-cjk fonts-nanum
 | R2_REGION | 리전(auto) | 〃 | 아니오 |
 | R2_ACCESS_KEY_ID | R2 API 토큰 Access Key | 〃 | 예 |
 | R2_SECRET_ACCESS_KEY | R2 API 토큰 Secret | 〃 | 예 |
-| SOFFICE_BIN / PDFTOPPM_BIN / PDFINFO_BIN | 바이너리 경로 오버라이드(선택) | 로컬 환경 | 아니오 |
-| RENDER_DPI / RENDER_LOSSLESS | 렌더 품질(선택) | 선택 | 아니오 |
+| MS_GRAPH_AUTH_MODE / TENANT_ID / CLIENT_ID | PowerPoint renderer 인증 | Entra | client id 외 예 |
+| MS_GRAPH_REFRESH_TOKEN | delegated 인증 최초 seed | Microsoft OAuth | 예 |
+| MS_GRAPH_REFRESH_TOKEN_FILE | 회전 token 영속 파일(`/data/...`) | Railway volume | 아니오 |
+| PDFTOPPM_BIN / PDFINFO_BIN | 바이너리 경로 오버라이드(선택) | 로컬 환경 | 아니오 |
+| RENDER_DPI | 렌더 품질(선택) | 선택 | 아니오 |
 | WORKER_POLL_MS | 워커 폴링 주기(ms, 기본 5000) | 선택 | 아니오 |
 | INLINE_WORKER | 웹 프로세스에서 변환 즉시 실행(1=사용) | 선택 | 아니오 |
 
@@ -169,7 +172,8 @@ npm run worker:poll           # 변환 워커 (별도 터미널)
 ## 7. 배포 (Railway)
 
 - `main` 브랜치에 push 하면 Railway가 자동으로 빌드·배포한다(GitHub 연동, `Dockerfile`, `railway.json`).
-- 이미지는 `node:22` 기반이며 LibreOffice, Poppler, 한글 폰트(Noto CJK·Nanum·Pretendard)를 포함한다. `scripts/start.sh` 가 워커와 웹을 한 컨테이너에서 실행한다.
+- 이미지는 `node:22` 기반이며 Poppler를 포함한다. PowerPoint 렌더링은 Microsoft Graph가 수행한다. `scripts/start.sh` 가 워커와 웹을 한 컨테이너에서 실행한다.
+- `/data` Railway volume에 회전 refresh token을 영속화한다.
 - 배포 상태 및 워커 버전은 `GET /api/worker/status`(온라인 여부와 커밋 SHA) 또는 대시보드 상단 배지로 확인한다.
 - push 전 점검: `npm run typecheck` (필요 시 `npm run build`).
 
@@ -185,7 +189,7 @@ npm run worker:poll           # 변환 워커 (별도 터미널)
                                     │
                                     ▼ (폴링)
                              [워커 poll-loop]
-                       soffice→PDF→PNG, 크롭/가공(sharp)
+                 Microsoft PowerPoint→PDF→PNG, 고정박스 캡처(sharp)
                                     │  결과 이미지 업로드
                                     ├──▶ [R2]
                                     └──▶ [Supabase] (블록·이미지 메타)
@@ -216,4 +220,4 @@ npm run worker:poll           # 변환 워커 (별도 터미널)
 | 코드 수정 후에도 결과가 동일 | 워커 미재시작(이전 코드 유지) 또는 새 변환 없이 이전 산출물 확인. |
 | 업로드·변환 실패(스토리지 오류) | `R2_*` 값 미설정·오류. `scripts/test/r2-e2e.mjs` 로 점검. CORS 미설정 시 브라우저 업로드 실패. |
 | Notion 발행 실패(권한 오류) | 대상 페이지에 통합이 연결되지 않음. 통합이 연결된 워크스페이스 페이지를 대상으로 지정. |
-| 배지 내부 숫자가 아래로 치우침 | LibreOffice가 도형 높이보다 큰 글자를 세로 정렬하는 방식에서 기인(폰트 무관). 별도 확인 항목. |
+| Graph 인증 실패 | refresh token 만료·회전 파일 미마운트 여부를 확인. `/data/ms-graph-refresh-token` volume과 Railway 변수를 점검하고 token 값은 로그에 출력하지 않는다. |

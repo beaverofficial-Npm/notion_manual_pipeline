@@ -205,7 +205,7 @@ MVP에서는 실제 Notion UI를 100% 복제하지 않는다. 대신 발행될 b
 처리:
 
 1. 원본 PPT 다운로드
-2. LibreOffice로 PPTX → PDF 변환
+2. Microsoft Graph PowerPoint renderer로 PPTX → PDF 변환
 3. PDF → slide PNG 렌더
 4. PPT XML 파싱
 5. slide row 저장

@@ -16,7 +16,7 @@
 | --- | --- |
 | v1 자산 | PPT 매뉴얼을 업로드해 Notion 발행 가능한 초안을 만들고, 웹에서 검수/수정/발행한다. |
 | Backend of record | Supabase DB/Storage가 작업, 원본, 렌더, asset, Notion 후보, 발행 이력을 저장한다. |
-| Worker | Railway 컨테이너에서 LibreOffice/Poppler 기반 변환 worker가 queued job을 처리한다. |
+| Worker | Railway 컨테이너에서 Microsoft Graph PowerPoint/Poppler 기반 변환 worker가 queued job을 처리한다. |
 | Notion | 발행 전 preview를 만들고, 승인 후 Notion page/block을 생성한다. |
 | 금지된 방향 | 앱 런타임에 사전 생성된 마스터 문서 JSON/seed 데이터를 넣고 제품처럼 보여주는 방식. |
 

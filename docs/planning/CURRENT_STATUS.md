@@ -1,6 +1,6 @@
 # Current Status
 
-작성일: 2026-06-19
+작성일: 2026-07-21
 
 이 문서는 Notion Manual Pipeline의 현재 구현, 배포, 검증 상태를 한 페이지에서 확인하기 위한 현행 문서이다. 상세 기획은 `PRD.md`, `PIPELINE_SPEC.md`, `TECHNICAL_DESIGN.md`, `E2E_PIPELINE_PLAN.md`를 기준으로 한다.
 
@@ -24,7 +24,7 @@ PPT 업로드 → 변환 job 생성 → Railway 상주 worker 변환 → 웹 검
 | 빌더 | Dockerfile |
 | 런타임 구성 | Next.js web + conversion worker 단일 컨테이너 |
 
-Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker image 안에 LibreOffice, Poppler, 한글 폰트를 포함한다.
+Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX→PDF는 Microsoft Graph의 PowerPoint 렌더러만 사용하고, Docker image에는 PDF→PNG용 Poppler만 포함한다. 회전 refresh token은 Railway volume의 `/data/ms-graph-refresh-token`에 영속화한다.
 
 ## 3. 인프라 구성
 
@@ -43,7 +43,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker im
   - `scripts/worker/poll-loop.mjs`
   - `scripts/worker/run-conversion-job.mjs`
 - 변환 도구:
-  - LibreOffice: PPT/PPTX → PDF
+  - Microsoft Graph PowerPoint renderer: PPT/PPTX → PDF
   - Poppler `pdftoppm`: PDF → PNG slide render
   - `pdfinfo`: PDF page count
 
@@ -83,6 +83,9 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker im
   - 화질을 낮추지 않고 page range로 나누어 처리
   - 기본 `PDFTOPPM_CHUNK_SIZE=20`
   - `PDFTOPPM_CHUNK_TIMEOUT_MS`로 chunk timeout 조정 가능
+- Graph upload session을 사용해 대형 PPT를 320KiB 배수 chunk로 업로드
+- 개인 OneDrive delegated refresh token 회전값을 0600 파일로 원자 저장
+- 렌더러 fallback 없음: Graph 오류는 job 실패로 기록해 오래된/다른 렌더 결과를 숨기지 않음
 
 ### PPT 분석/구조화
 
@@ -101,8 +104,8 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. Docker im
 - 하위 설명을 bullet/paragraph 후보로 변환
 - 참고/주의 문구를 callout 후보로 변환
 - PPT table 객체를 table 후보로 변환
-- 이미지 zone clustering으로 인접 이미지를 crop 후보로 묶음
-- crop box를 Supabase row로 저장
+- 이미지가 있는 본문 페이지는 모든 덱 공통 고정 박스를 padding 0으로 캡처
+- 이미지가 없는 FAQ/표 페이지는 잘못된 crop asset을 만들지 않음
 
 ### 검수 UI
 

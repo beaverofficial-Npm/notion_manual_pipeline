@@ -94,7 +94,7 @@ UI의 목적은 파이프라인 조작이다. 운영 대시보드, 통계, 장�
 - `manual_conversion_jobs` 구현
 - job enqueue API 구현
 - local worker script 작성
-- LibreOffice 기반 PPTX to PDF 변환
+- Microsoft Graph PowerPoint 기반 PPTX to PDF 변환
 - PDF to PNG render
 - PPT 객체 파싱
 - slide/element manifest 생성
@@ -258,7 +258,7 @@ UI의 목적은 파이프라인 조작이다. 운영 대시보드, 통계, 장�
 | 리스크 | 영향 | 대응 |
 | --- | --- | --- |
 | PPT 내부 구조가 파일마다 다름 | 후보 품질 저하 | object parser + render 기반 fallback 병행 |
-| LibreOffice 렌더 결과가 원본과 다름 | crop 좌표 오차 | render pixel 좌표 기준으로 최종 crop |
+| PowerPoint 렌더 결과와 crop 좌표계 불일치 | crop 좌표 오차 | 실측 고정 비율을 render pixel 좌표로 환산해 최종 crop |
 | 자동 annotation 판단 오류 | 이미지 품질 저하 | annotation은 검수 필수로 처리 |
 | 표 추출 실패 | 내용 누락 | table fallback image + review warning |
 | Notion API rate/size 제한 | 발행 실패 | publish run 단위 retry와 block batch 처리 |

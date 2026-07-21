@@ -2,17 +2,16 @@
 // 실행: node --env-file=.env.staging scripts/test/r2-e2e.mjs <big.pptx 경로>
 //  1) presigned PUT(브라우저 직접 업로드 방식)으로 50MB+ 파일 업로드
 //  2) 워커 코드(downloadSource)로 다시 받아 sha256 대조(왕복 무결)
-//  3) 받은 파일을 soffice 로 변환(파이프라인 무결)
+//  3) 받은 파일을 Microsoft Graph PowerPoint로 변환(파이프라인 무결)
 import { S3Client, CreateBucketCommand, PutObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { downloadSource, isSourceStorageConfigured } from '../worker/source-storage.mjs';
-import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import { renderPdfWithGraph } from '../worker/graph-renderer.mjs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-const execFileAsync = promisify(execFile);
 const CT = 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
 
 function sha(buf) {
@@ -67,27 +66,19 @@ async function main() {
   console.log(`[다운로드] 워커 downloadSource ${(dlBuf.length / 1024 / 1024).toFixed(1)}MB sha=${dlHash.slice(0, 12)} 왕복일치=${match}`);
   if (!match) throw new Error('왕복 sha256 불일치 — R2 저장/회수 손상');
 
-  // 5) soffice 변환(파이프라인 무결)
-  const tmp = path.join(path.dirname(bigPath), 'e2e-render');
-  await rm(tmp, { recursive: true, force: true });
-  await mkdir(tmp, { recursive: true });
+  // 5) Microsoft PowerPoint 변환(파이프라인 무결)
+  const tmp = await mkdtemp(path.join(os.tmpdir(), 'manual-r2-e2e-'));
   const pptOut = path.join(tmp, 'in.pptx');
-  await writeFile(pptOut, dlBuf);
-  const soffice = process.env.SOFFICE_BIN ?? '/opt/homebrew/bin/soffice';
-  const t1 = Date.now();
-  await execFileAsync(
-    soffice,
-    [`-env:UserInstallation=file://${path.join(tmp, 'prof')}`, '--headless', '--norestore', '--convert-to', 'pdf', '--outdir', tmp, pptOut],
-    { maxBuffer: 1024 * 1024 * 16, timeout: 180000, killSignal: 'SIGKILL' },
-  );
-  const pdf = (await readdir(tmp)).find((f) => f.toLowerCase().endsWith('.pdf'));
-  if (!pdf) throw new Error('soffice 변환 실패(PDF 미생성)');
-  const pdfSize = (await readFile(path.join(tmp, pdf))).length;
-  console.log(`[변환] soffice PDF 생성 ${pdf} (${(pdfSize / 1024 / 1024).toFixed(1)}MB, ${((Date.now() - t1) / 1000).toFixed(1)}s)`);
-
-  // 정리
-  await rm(tmp, { recursive: true, force: true });
-  console.log('\n✅ 1단계 e2e 통과: 60MB PPTX → R2 presigned PUT → 워커 다운로드(해시일치) → soffice 변환');
+  try {
+    await writeFile(pptOut, dlBuf);
+    const t1 = Date.now();
+    const pdfPath = await renderPdfWithGraph({ sourcePath: pptOut, outputDir: tmp });
+    const pdfSize = (await readFile(pdfPath)).length;
+    console.log(`[변환] Microsoft PowerPoint PDF 생성 (${(pdfSize / 1024 / 1024).toFixed(1)}MB, ${((Date.now() - t1) / 1000).toFixed(1)}s)`);
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+  console.log('\n✅ 1단계 e2e 통과: 60MB PPTX → R2 presigned PUT → 워커 다운로드(해시일치) → Microsoft Graph 변환');
   console.log('   (Supabase Free 50MB 한도였다면 업로드 자체가 거부됐을 크기)');
 }
 

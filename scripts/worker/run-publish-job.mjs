@@ -33,7 +33,7 @@ const supabase = createClient(requireEnv('NEXT_PUBLIC_SUPABASE_URL'), requireEnv
 
 // 가장 오래된 queued 발행(또는 지정 runId)을 원자적으로 claim(queued→running)한다.
 async function resolvePublishRun(runIdArg) {
-  const columns = 'id,task_id,status';
+  const columns = 'id,task_id,payload,status';
   let target;
   if (runIdArg) {
     const { data, error } = await supabase.from('manual_publish_runs').select(columns).eq('id', runIdArg).single();
@@ -60,8 +60,27 @@ async function resolvePublishRun(runIdArg) {
 
 export async function runPublishOnce(runIdArg) {
   const run = await resolvePublishRun(runIdArg);
+  const conversionJobId = typeof run.payload?.conversionJobId === 'string' ? run.payload.conversionJobId.trim() : '';
+  if (!conversionJobId) {
+    const message = `Publish run ${run.id} is missing payload.conversionJobId. Queue a new publish run from a succeeded conversion.`;
+    await supabase
+      .from('manual_publish_runs')
+      .update({ status: 'failed', error_message: message, finished_at: new Date().toISOString() })
+      .eq('id', run.id);
+    await supabase
+      .from('manual_tasks')
+      .update({ status: 'review_required', updated_at: new Date().toISOString() })
+      .eq('id', run.task_id);
+    throw new Error(message);
+  }
   const token = requireEnv('NOTION_TOKEN');
-  const result = await publishToNotion({ supabase, token, taskId: run.task_id, publishRunId: run.id });
+  const result = await publishToNotion({
+    supabase,
+    token,
+    taskId: run.task_id,
+    publishRunId: run.id,
+    conversionJobId,
+  });
   console.log(JSON.stringify({ publishRunId: run.id, taskId: run.task_id, ...result }));
   return result;
 }

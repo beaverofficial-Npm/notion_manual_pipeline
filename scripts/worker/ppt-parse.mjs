@@ -216,7 +216,9 @@ export function parseSlideShapes(slideXml, slideSize) {
       const box = absBox(block, tf);
       const areaRatio = slideSize.cx && slideSize.cy ? (box.w * box.h) / (slideSize.cx * slideSize.cy) : 0;
       return {
+        id: attr(block, 'id'),
         name: decodeXml(attr(block, 'name')),
+        relationshipId: attr(block, 'r:embed'),
         box,
         bbox: percentBox(box, slideSize),
         areaRatio: Number(areaRatio.toFixed(4)),

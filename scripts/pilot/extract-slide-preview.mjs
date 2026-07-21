@@ -1,7 +1,8 @@
-import { execFile } from 'node:child_process';
 import { mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { renderPdfWithGraph } from '../worker/graph-renderer.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -10,8 +11,7 @@ const pptPath = path.join(repoRoot, 'docs', '비버_매장과�
 const slideNumber = 14;
 const outDir = path.join(repoRoot, 'public', 'generated', 'pilot', 'product-slide-14');
 const tmpDir = path.join(repoRoot, '.tmp', 'pilot-product-slide-14');
-const soffice = '/opt/homebrew/bin/soffice';
-const pdftoppm = '/opt/homebrew/bin/pdftoppm';
+const pdftoppm = process.env.PDFTOPPM_BIN ?? '/opt/homebrew/bin/pdftoppm';
 
 function decodeXml(value) {
   return value
@@ -80,17 +80,7 @@ async function renderSlide() {
   await mkdir(tmpDir, { recursive: true });
   await mkdir(outDir, { recursive: true });
 
-  await execFileAsync(soffice, ['--headless', '--convert-to', 'pdf', '--outdir', tmpDir, pptPath], {
-    maxBuffer: 1024 * 1024 * 16,
-  });
-
-  const files = await readdir(tmpDir);
-  const pdfName = files.find((file) => file.toLowerCase().endsWith('.pdf'));
-  if (!pdfName) {
-    throw new Error('PDF conversion failed.');
-  }
-
-  const pdfPath = path.join(tmpDir, pdfName);
+  const pdfPath = await renderPdfWithGraph({ sourcePath: pptPath, outputDir: tmpDir });
   const outputPrefix = path.join(tmpDir, 'slide');
   await execFileAsync(pdftoppm, ['-f', String(slideNumber), '-l', String(slideNumber), '-png', '-r', '144', pdfPath, outputPrefix], {
     maxBuffer: 1024 * 1024 * 16,

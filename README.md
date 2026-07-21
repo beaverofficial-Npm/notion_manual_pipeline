@@ -6,11 +6,11 @@ PPT 통합가이드를 분석해 목차 기준으로 정리하고, 웹에서 검
 
 1차 — 변환
 1. PPT 업로드 (`manual-source` 버킷 저장)
-2. LibreOffice로 PDF 변환 후 슬라이드를 PNG로 렌더(기본 300DPI, `pdftoppm` 페이지 범위 chunk 처리)
+2. Microsoft Graph의 PowerPoint 렌더러로 PDF 변환 후 슬라이드를 PNG로 렌더(기본 300DPI, `pdftoppm` 페이지 범위 chunk 처리)
 3. 슬라이드 역할 판별(표지·목차·섹션·본문). 표지·목차는 본문에서 제외하되 목차 정보는 카테고리 분류에 사용
 4. 섹션 표지 기준으로 카테고리 → 기능 트리 생성, 연속 동일 기능명은 한 기능으로 병합
 5. 본문 위계 추출(단계 번호 → numbered, 하위 → bullet, 주의/참고 → callout, 표 → table)
-6. 이미지 영역(zone) 클러스터링 — 인접 이미지를 하나의 영역으로 묶어 화살표·어노테이션까지 함께 크롭 대상으로 잡음
+6. 이미지가 있는 본문 슬라이드는 실측 고정 박스(`x=.036458, y=.171296, w=.606771, h=.694444`)를 padding 0으로 캡처해 화면·화살표·어노테이션을 함께 보존. FAQ/표처럼 이미지 박스가 없는 페이지는 이미지 asset을 만들지 않음
 
 2차 — 검토·발행
 1. 검수 화면에서 카테고리/기능 트리를 보며 기능별 슬라이드를 확인
@@ -24,7 +24,7 @@ PPT 통합가이드를 분석해 목차 기준으로 정리하고, 웹에서 검
 - Supabase (Postgres + Storage)
 - Notion REST API
 - Beaverworks Design System
-- 변환 worker: LibreOffice(`soffice`) + Poppler(`pdftoppm`) + sharp
+- 변환 worker: Microsoft Graph PowerPoint renderer + Poppler(`pdftoppm`) + sharp
 
 ## 로컬 실행
 
@@ -34,15 +34,14 @@ cp .env.example .env   # 값 채우기 (아래 Environment 참고)
 npm run dev            # 웹 (검수/발행)
 ```
 
-변환 worker는 로컬 바이너리가 필요합니다.
+변환 worker는 Microsoft Graph 인증과 Poppler 바이너리가 필요합니다.
 
 ```bash
-brew install --cask libreoffice
 brew install poppler
 npm run worker:conversion   # queued 상태의 변환 job을 처리
 ```
 
-`RENDER_DPI`(기본 300), `SOFFICE_BIN`, `PDFTOPPM_BIN`, `PDFINFO_BIN` 환경변수로 렌더 도구 경로·해상도를 조정할 수 있습니다.
+`MS_GRAPH_*` 인증값은 `.env.example`을 따릅니다. `RENDER_DPI`(기본 300), `PDFTOPPM_BIN`, `PDFINFO_BIN` 환경변수로 PDF 렌더 도구 경로·해상도를 조정할 수 있습니다.
 대형 PPT는 화질을 낮추지 않고 `PDFTOPPM_CHUNK_SIZE`(기본 20) 단위로 나눠 렌더링합니다.
 `PDFTOPPM_CHUNK_TIMEOUT_MS`를 설정하면 chunk별 timeout을 별도로 조정할 수 있습니다.
 
@@ -75,6 +74,8 @@ Storage 버킷(`supabase/storage.sql`):
 - `SUPABASE_SERVICE_ROLE_KEY` (서버·worker 전용)
 - `NOTION_TOKEN` (Notion integration secret)
 - `NOTION_MANUAL_DATABASE_ID`, `NOTION_MANUAL_DATA_SOURCE_ID` (선택)
+- `MS_GRAPH_AUTH_MODE`, `MS_GRAPH_TENANT_ID`, `MS_GRAPH_CLIENT_ID`
+- `MS_GRAPH_REFRESH_TOKEN` 또는 조직 계정용 `MS_GRAPH_CLIENT_SECRET`/`MS_GRAPH_DRIVE_ID`
 
 비밀키는 `.env`에만 두고 저장소에 커밋하지 않습니다.
 

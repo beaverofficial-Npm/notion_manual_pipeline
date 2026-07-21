@@ -151,28 +151,80 @@ async function selectInChunks(ids, fetch, chunkSize = 100) {
   for (const { data, error } of results) { if (error) throw new Error(error.message); rows.push(...(data ?? [])); }
   return rows;
 }
-async function fetchPublishData(supabase, taskId) {
+export async function fetchPublishData(supabase, taskId, conversionJobId) {
+  if (!conversionJobId) throw new Error('conversionJobId is required for publishing.');
+  const { data: conversionJob, error: conversionJobError } = await supabase
+    .from('manual_conversion_jobs')
+    .select('id,task_id,status,run_number')
+    .eq('id', conversionJobId)
+    .single();
+  if (conversionJobError || !conversionJob) {
+    throw new Error(conversionJobError?.message ?? `변환 job을 찾지 못했습니다: ${conversionJobId}`);
+  }
+  if (conversionJob.task_id !== taskId) throw new Error('발행 run의 conversion job이 task와 일치하지 않습니다.');
+  if (conversionJob.status !== 'succeeded') throw new Error('성공한 conversion job만 발행할 수 있습니다.');
+
   const { data: task, error: taskError } = await supabase.from('manual_tasks').select('id,title,target_notion_page_id,target_notion_data_source_id').eq('id', taskId).single();
   if (taskError || !task) throw new Error(taskError?.message ?? '작업을 찾지 못했습니다.');
   const parentPageId = extractNotionPageId(task.target_notion_page_id ?? task.target_notion_data_source_id);
   if (!parentPageId) throw new Error('Notion 대상 페이지 URL 또는 page id가 필요합니다.');
 
-  const [{ data: categories }, { data: functions }, { data: slides }, { data: blocks }] = await Promise.all([
-    supabase.from('manual_categories').select('id,title,sort_order').eq('task_id', taskId).order('sort_order'),
-    supabase.from('manual_functions').select('id,category_id,title,sort_order').eq('task_id', taskId).order('sort_order'),
-    supabase.from('manual_slides').select('id,function_id,slide_number,render_path,review_status').eq('task_id', taskId).not('function_id', 'is', null).neq('review_status', 'excluded').order('slide_number'),
-    supabase.from('manual_notion_blocks').select('id,slide_id,sort_order,kind,content,review_status').eq('task_id', taskId).neq('review_status', 'excluded').order('sort_order'),
-  ]);
+  const { data: slides, error: slidesError } = await supabase
+    .from('manual_slides')
+    .select('id,function_id,slide_number,render_path,review_status')
+    .eq('task_id', taskId)
+    .eq('job_id', conversionJobId)
+    .not('function_id', 'is', null)
+    .neq('review_status', 'excluded')
+    .order('slide_number');
+  if (slidesError) throw new Error(slidesError.message);
   const slideRows = slides ?? [];
-  const assetRows = await selectInChunks(slideRows.map((s) => s.id), (chunk) =>
-    supabase.from('manual_assets').select('id,slide_id,label,crop_box,storage_path,review_status').in('slide_id', chunk).neq('review_status', 'excluded').order('created_at'));
+  const slideIds = slideRows.map((slide) => slide.id);
+  const functionIds = [...new Set(slideRows.map((slide) => slide.function_id).filter(Boolean))];
+
+  const [functions, blocks, assetRows] = await Promise.all([
+    selectInChunks(functionIds, (chunk) =>
+      supabase
+        .from('manual_functions')
+        .select('id,category_id,title,sort_order')
+        .eq('task_id', taskId)
+        .in('id', chunk)
+        .order('sort_order')),
+    selectInChunks(slideIds, (chunk) =>
+      supabase
+        .from('manual_notion_blocks')
+        .select('id,slide_id,sort_order,kind,content,review_status')
+        .eq('task_id', taskId)
+        .in('slide_id', chunk)
+        .neq('review_status', 'excluded')
+        .order('sort_order')),
+    selectInChunks(slideIds, (chunk) =>
+      supabase
+        .from('manual_assets')
+        .select('id,slide_id,label,crop_box,storage_path,review_status')
+        .eq('job_id', conversionJobId)
+        .in('slide_id', chunk)
+        .neq('review_status', 'excluded')
+        .order('created_at')),
+  ]);
+  const categoryIds = [...new Set(functions.map((fn) => fn.category_id).filter(Boolean))];
+  const categories = await selectInChunks(categoryIds, (chunk) =>
+    supabase
+      .from('manual_categories')
+      .select('id,title,sort_order')
+      .eq('task_id', taskId)
+      .in('id', chunk)
+      .order('sort_order'));
+  categories.sort((a, b) => a.sort_order - b.sort_order);
+  functions.sort((a, b) => a.sort_order - b.sort_order);
+  blocks.sort((a, b) => a.sort_order - b.sort_order);
 
   const functionsByCategory = new Map(), slidesByFunction = new Map(), blocksBySlide = new Map(), assetsBySlide = new Map();
-  for (const fn of functions ?? []) { const c = functionsByCategory.get(fn.category_id) ?? []; c.push(fn); functionsByCategory.set(fn.category_id, c); }
+  for (const fn of functions) { const c = functionsByCategory.get(fn.category_id) ?? []; c.push(fn); functionsByCategory.set(fn.category_id, c); }
   for (const s of slideRows) { if (!s.function_id) continue; const c = slidesByFunction.get(s.function_id) ?? []; c.push(s); slidesByFunction.set(s.function_id, c); }
-  for (const b of blocks ?? []) { if (!b.slide_id) continue; const c = blocksBySlide.get(b.slide_id) ?? []; c.push(b); blocksBySlide.set(b.slide_id, c); }
+  for (const b of blocks) { if (!b.slide_id) continue; const c = blocksBySlide.get(b.slide_id) ?? []; c.push(b); blocksBySlide.set(b.slide_id, c); }
   for (const a of assetRows) { const c = assetsBySlide.get(a.slide_id) ?? []; c.push(a); assetsBySlide.set(a.slide_id, c); }
-  return { task, parentPageId, categories: categories ?? [], functionsByCategory, slidesByFunction, blocksBySlide, assetsBySlide };
+  return { task, conversionJob, parentPageId, categories, functionsByCategory, slidesByFunction, blocksBySlide, assetsBySlide };
 }
 
 async function runPool(items, limit, worker) {
@@ -184,8 +236,22 @@ async function runPool(items, limit, worker) {
 }
 
 // ── 발행 실행(코어) — 워커가 claim 한 publishRunId 로 실행. 진행은 publish_run.progress 에 기록 ──
-export async function publishToNotion({ supabase, token, taskId, publishRunId }) {
-  const data = await fetchPublishData(supabase, taskId);
+export async function publishToNotion({ supabase, token, taskId, publishRunId, conversionJobId }) {
+  let data;
+  try {
+    data = await fetchPublishData(supabase, taskId, conversionJobId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '발행 입력 검증에 실패했습니다.';
+    await supabase
+      .from('manual_publish_runs')
+      .update({ status: 'failed', error_message: message, finished_at: new Date().toISOString() })
+      .eq('id', publishRunId);
+    await supabase
+      .from('manual_tasks')
+      .update({ status: 'review_required', updated_at: new Date().toISOString() })
+      .eq('id', taskId);
+    throw error;
+  }
   let total = 1;
   for (const category of data.categories) total += (data.functionsByCategory.get(category.id) ?? []).filter((fn) => (data.slidesByFunction.get(fn.id) ?? []).length > 0).length;
   let done = 0;

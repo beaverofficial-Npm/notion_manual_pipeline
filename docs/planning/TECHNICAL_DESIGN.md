@@ -28,7 +28,8 @@ Conversion Job Queue
   |
   v
 Conversion Worker
-  |-- LibreOffice/PDF renderer
+  |-- Microsoft Graph PowerPoint renderer
+  |-- Poppler PDF renderer
   |-- python-pptx/XML parser
   |-- image cropper
   |-- QR/table detector
@@ -50,8 +51,7 @@ Supabase DB/Storage
 
 ### 3.2 worker에서 처리할 것
 
-- LibreOffice 실행
-- PPTX to PDF 변환
+- Microsoft Graph upload session 및 PowerPoint PDF 변환
 - PDF to PNG 변환
 - PPTX 내부 XML/object 파싱
 - 이미지 crop 생성
@@ -60,7 +60,7 @@ Supabase DB/Storage
 
 ### 3.3 이유
 
-LibreOffice, PDF 렌더링, 대용량 이미지 처리는 Vercel serverless 함수에 부적합하다. Supabase Edge Function도 동일하게 무거운 바이너리 처리에는 맞지 않는다.
+대형 PPT 업로드, PDF 렌더링, 대용량 이미지 처리는 Vercel serverless 함수에 부적합하다. Supabase Edge Function도 동일하게 무거운 바이너리 처리에는 맞지 않는다.
 
 MVP에서는 local worker 또는 별도 Node/Python worker를 사용하고, 운영 전환 시 Cloud Run, Render, Fly.io, Railway 같은 container runtime으로 옮긴다. 이 worker는 별도 앱 백엔드가 아니라 변환 파이프라인 runtime이다.
 

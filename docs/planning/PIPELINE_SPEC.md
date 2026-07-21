@@ -86,9 +86,10 @@
 
 권장 방식:
 
-- LibreOffice headless로 PPTX를 PDF로 변환
+- Microsoft Graph의 PowerPoint renderer로 PPTX를 PDF로 변환
 - PDF 페이지를 PNG로 렌더링
-- 좌표계는 PPT EMU, slide point, render pixel을 모두 저장
+- 숨김 슬라이드를 제외한 PDF page를 원본 slide number에 명시적으로 매핑
+- 이미지 본문 페이지는 모든 덱 공통 실측 고정 박스를 padding 0으로 캡처
 
 출력:
 

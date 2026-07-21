@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Microsoft Graph PPT 변환 로컬 검수 결과</title>
+<style>
+:root{color-scheme:light;font-family:Inter,Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb}body{margin:0}main{max-width:1440px;margin:auto;padding:40px 28px 80px}h1{margin:0 0 10px;font-size:34px}h2{margin-top:42px}h3{margin-top:28px}.sub{color:#62708a}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:26px 0}.card{background:white;border:1px solid #dbe3ef;border-radius:14px;padding:18px;box-shadow:0 5px 16px #1c2b4a0a}.card b{display:block;font-size:27px;margin-top:6px}.badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:800;font-size:12px}.good{background:#d9f9e5;color:#08783c}.bad{background:#ffe0e0;color:#b42318}table{border-collapse:collapse;width:100%;background:#fff;border-radius:12px;overflow:hidden;font-size:13px}th,td{border-bottom:1px solid #e6ebf2;padding:10px 12px;text-align:left;vertical-align:top}th{background:#edf2f9;position:sticky;top:0}.table-wrap{overflow:auto;border:1px solid #dbe3ef;border-radius:12px}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(520px,1fr));gap:16px}figure{margin:0;background:#fff;border:1px solid #dbe3ef;border-radius:12px;overflow:hidden}figure img{display:block;width:100%;height:auto}figcaption{padding:10px 14px;color:#4d5d78;font-weight:700}code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.92em}.method{background:#fff;border-left:5px solid #3867d6;padding:18px 22px;border-radius:8px}.method li{margin:7px 0}@media(max-width:700px){main{padding:24px 14px}.gallery{grid-template-columns:1fr}h1{font-size:27px}}
+</style></head><body><main>
+<h1>Microsoft Graph PPT 변환 로컬 검수 결과</h1>
+<p class="sub">환경: <b>local</b> · 기준 URL: <code>http://localhost:3100</code> · 완료: 2026-07-21T10:19:30.415Z</p>
+<div class="summary">
+  <div class="card">최종 판정<b><span class="badge good">100% PASS</span></b></div>
+  <div class="card">실행 케이스<b>30</b></div>
+  <div class="card">비교 검사 통과<b>254</b></div>
+  <div class="card">비교 검사 실패<b>0</b></div>
+  <div class="card">렌더러<b style="font-size:18px">microsoft_graph</b></div>
+</div>
+<section class="method"><h2 style="margin-top:0">검수 기준</h2><ol>
+<li>각 업로드가 새 task/job/source/run 경로를 생성하고 이전 결과를 재사용하지 않는지 검증</li>
+<li>동일 파일명·동일 바이트, 동일 파일명·수정 바이트, 다른 파일명·동일 바이트, 다른 파일명·수정 바이트, 동일 크기·수정 바이트 조합 검증</li>
+<li>Microsoft Graph(PowerPoint) 렌더 출처, 고정 캡처 좌표, crop padding 0을 manifest에서 검증</li>
+<li>수정 fixture는 실제 캡처 이미지 SHA가 전체 이미지 페이지의 절반 이상 바뀌고, 선언하지 않은 페이지는 바뀌지 않았는지 비교</li>
+<li>동일 바이트 재실행은 bytes SHA를 우선 비교하고, Graph의 극미세 안티앨리어싱 차이는 양자화 시각 지문으로 재확인</li>
+<li>PPT에서 표준 이미지 박스가 감지된 슬라이드 집합과 실제 생성 asset 슬라이드 집합이 정확히 같은지 비교</li>
+<li>모든 group_bake 이미지가 고정 좌표·padding 0으로 동일한 출력 크기를 갖는지 전수 검사</li>
+</ol></section>
+<h2>케이스별 결과</h2><div class="table-wrap"><table><thead><tr><th>Case</th><th>Variant</th><th>Source</th><th>Size</th><th>Visible changed / Min</th><th>Crops / Expected</th><th>Result</th></tr></thead><tbody><tr>
+    <td><code>deck-1-baseline</code></td>
+    <td>baseline</td>
+    <td>01_비버_포스_통합이용가이드_260720.pptx</td>
+    <td>53.8 MB</td>
+    <td>—</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-1-same-name-same-bytes</code></td>
+    <td>same_name_same_bytes</td>
+    <td>01_비버_포스_통합이용가이드_260720.pptx</td>
+    <td>53.8 MB</td>
+    <td>—</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-1-same-name-modified</code></td>
+    <td>same_name_modified</td>
+    <td>01_비버_포스_통합이용가이드_260720.pptx</td>
+    <td>34.4 MB</td>
+    <td>103 / 101</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-1-different-name-modified</code></td>
+    <td>different_name_modified</td>
+    <td>01_비버_포스_통합이용가이드_260720_RENAMED_MODIFIED.pptx</td>
+    <td>34.4 MB</td>
+    <td>103 / 101</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-1-different-name-same-bytes</code></td>
+    <td>different_name_same_bytes</td>
+    <td>01_비버_포스_통합이용가이드_260720_RENAMED_SAME_BYTES.pptx</td>
+    <td>53.8 MB</td>
+    <td>—</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-1-same-size-modified</code></td>
+    <td>same_size_modified</td>
+    <td>01_비버_포스_통합이용가이드_260720_MODIFIED_SAME_SIZE.pptx</td>
+    <td>53.8 MB</td>
+    <td>103 / 101</td>
+    <td>202 / 202</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-baseline</code></td>
+    <td>baseline</td>
+    <td>02_비버_키오스크_통합가이드.pptx</td>
+    <td>12.6 MB</td>
+    <td>—</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-same-name-same-bytes</code></td>
+    <td>same_name_same_bytes</td>
+    <td>02_비버_키오스크_통합가이드.pptx</td>
+    <td>12.6 MB</td>
+    <td>—</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-same-name-modified</code></td>
+    <td>same_name_modified</td>
+    <td>02_비버_키오스크_통합가이드.pptx</td>
+    <td>10.2 MB</td>
+    <td>19 / 18</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-different-name-modified</code></td>
+    <td>different_name_modified</td>
+    <td>02_비버_키오스크_통합가이드_RENAMED_MODIFIED.pptx</td>
+    <td>10.2 MB</td>
+    <td>19 / 18</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-different-name-same-bytes</code></td>
+    <td>different_name_same_bytes</td>
+    <td>02_비버_키오스크_통합가이드_RENAMED_SAME_BYTES.pptx</td>
+    <td>12.6 MB</td>
+    <td>—</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-2-same-size-modified</code></td>
+    <td>same_size_modified</td>
+    <td>02_비버_키오스크_통합가이드_MODIFIED_SAME_SIZE.pptx</td>
+    <td>12.6 MB</td>
+    <td>19 / 18</td>
+    <td>35 / 35</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-baseline</code></td>
+    <td>baseline</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1.pptx</td>
+    <td>17.1 MB</td>
+    <td>—</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-same-name-same-bytes</code></td>
+    <td>same_name_same_bytes</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1.pptx</td>
+    <td>17.1 MB</td>
+    <td>—</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-same-name-modified</code></td>
+    <td>same_name_modified</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1.pptx</td>
+    <td>10.7 MB</td>
+    <td>16 / 14</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-different-name-modified</code></td>
+    <td>different_name_modified</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1_RENAMED_MODIFIED.pptx</td>
+    <td>10.7 MB</td>
+    <td>16 / 14</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-different-name-same-bytes</code></td>
+    <td>different_name_same_bytes</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1_RENAMED_SAME_BYTES.pptx</td>
+    <td>17.1 MB</td>
+    <td>—</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-5-same-size-modified</code></td>
+    <td>same_size_modified</td>
+    <td>05_비버_매장관리APP_통합가이드_260720_ver_1_MODIFIED_SAME_SIZE.pptx</td>
+    <td>17.1 MB</td>
+    <td>16 / 14</td>
+    <td>27 / 27</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-baseline</code></td>
+    <td>baseline</td>
+    <td>03 비버테이블오더_이용가이드.pptx</td>
+    <td>15.5 MB</td>
+    <td>—</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-same-name-same-bytes</code></td>
+    <td>same_name_same_bytes</td>
+    <td>03 비버테이블오더_이용가이드.pptx</td>
+    <td>15.5 MB</td>
+    <td>—</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-same-name-modified</code></td>
+    <td>same_name_modified</td>
+    <td>03 비버테이블오더_이용가이드.pptx</td>
+    <td>9.7 MB</td>
+    <td>27 / 27</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-different-name-modified</code></td>
+    <td>different_name_modified</td>
+    <td>03 비버테이블오더_이용가이드_RENAMED_MODIFIED.pptx</td>
+    <td>9.7 MB</td>
+    <td>27 / 27</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-different-name-same-bytes</code></td>
+    <td>different_name_same_bytes</td>
+    <td>03 비버테이블오더_이용가이드_RENAMED_SAME_BYTES.pptx</td>
+    <td>15.5 MB</td>
+    <td>—</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-3-same-size-modified</code></td>
+    <td>same_size_modified</td>
+    <td>03 비버테이블오더_이용가이드_MODIFIED_SAME_SIZE.pptx</td>
+    <td>15.5 MB</td>
+    <td>27 / 27</td>
+    <td>54 / 54</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-baseline</code></td>
+    <td>baseline</td>
+    <td>04_비버_매장관리_통합가이드.pptx</td>
+    <td>19.5 MB</td>
+    <td>—</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-same-name-same-bytes</code></td>
+    <td>same_name_same_bytes</td>
+    <td>04_비버_매장관리_통합가이드.pptx</td>
+    <td>19.5 MB</td>
+    <td>—</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-same-name-modified</code></td>
+    <td>same_name_modified</td>
+    <td>04_비버_매장관리_통합가이드.pptx</td>
+    <td>14.8 MB</td>
+    <td>63 / 58</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-different-name-modified</code></td>
+    <td>different_name_modified</td>
+    <td>04_비버_매장관리_통합가이드_RENAMED_MODIFIED.pptx</td>
+    <td>14.8 MB</td>
+    <td>63 / 58</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-different-name-same-bytes</code></td>
+    <td>different_name_same_bytes</td>
+    <td>04_비버_매장관리_통합가이드_RENAMED_SAME_BYTES.pptx</td>
+    <td>19.5 MB</td>
+    <td>—</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr>
+<tr>
+    <td><code>deck-4-same-size-modified</code></td>
+    <td>same_size_modified</td>
+    <td>04_비버_매장관리_통합가이드_MODIFIED_SAME_SIZE.pptx</td>
+    <td>19.5 MB</td>
+    <td>63 / 58</td>
+    <td>116 / 116</td>
+    <td><span class="badge good">PASS</span></td>
+  </tr></tbody></table></div>
+<h2>대표 전후 이미지</h2><section><h3>deck-1</h3><div class="gallery"><figure><img src="assets/deck-1-slide-005.webp" alt="deck-1 slide 5 before and after"><figcaption>deck-1 · slide 5</figcaption></figure>
+<figure><img src="assets/deck-1-slide-058.webp" alt="deck-1 slide 58 before and after"><figcaption>deck-1 · slide 58</figcaption></figure>
+<figure><img src="assets/deck-1-slide-116.webp" alt="deck-1 slide 116 before and after"><figcaption>deck-1 · slide 116</figcaption></figure></div></section>
+<section><h3>deck-2</h3><div class="gallery"><figure><img src="assets/deck-2-slide-005.webp" alt="deck-2 slide 5 before and after"><figcaption>deck-2 · slide 5</figcaption></figure>
+<figure><img src="assets/deck-2-slide-015.webp" alt="deck-2 slide 15 before and after"><figcaption>deck-2 · slide 15</figcaption></figure>
+<figure><img src="assets/deck-2-slide-025.webp" alt="deck-2 slide 25 before and after"><figcaption>deck-2 · slide 25</figcaption></figure></div></section>
+<section><h3>deck-3</h3><div class="gallery"><figure><img src="assets/deck-3-slide-004.webp" alt="deck-3 slide 4 before and after"><figcaption>deck-3 · slide 4</figcaption></figure>
+<figure><img src="assets/deck-3-slide-018.webp" alt="deck-3 slide 18 before and after"><figcaption>deck-3 · slide 18</figcaption></figure>
+<figure><img src="assets/deck-3-slide-038.webp" alt="deck-3 slide 38 before and after"><figcaption>deck-3 · slide 38</figcaption></figure></div></section>
+<section><h3>deck-4</h3><div class="gallery"><figure><img src="assets/deck-4-slide-005.webp" alt="deck-4 slide 5 before and after"><figcaption>deck-4 · slide 5</figcaption></figure>
+<figure><img src="assets/deck-4-slide-040.webp" alt="deck-4 slide 40 before and after"><figcaption>deck-4 · slide 40</figcaption></figure>
+<figure><img src="assets/deck-4-slide-079.webp" alt="deck-4 slide 79 before and after"><figcaption>deck-4 · slide 79</figcaption></figure></div></section>
+<section><h3>deck-5</h3><div class="gallery"><figure><img src="assets/deck-5-slide-005.webp" alt="deck-5 slide 5 before and after"><figcaption>deck-5 · slide 5</figcaption></figure>
+<figure><img src="assets/deck-5-slide-014.webp" alt="deck-5 slide 14 before and after"><figcaption>deck-5 · slide 14</figcaption></figure>
+<figure><img src="assets/deck-5-slide-026.webp" alt="deck-5 slide 26 before and after"><figcaption>deck-5 · slide 26</figcaption></figure></div></section>
+<h2>실패 목록</h2><ul><li>실패 없음</li></ul>
+<p class="sub">검수 요약 데이터: <a href="report-summary.json">report-summary.json</a></p>
+</main></body></html>

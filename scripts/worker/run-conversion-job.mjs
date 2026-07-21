@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { execFile } from 'node:child_process';
-import { copyFile, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
+import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -12,14 +14,15 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { parseGroupBoxes, parseImageBoxes, boxCropRect, stripOutsideTextShapes, cropGroups } from './group-bake.mjs';
+import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups } from './group-bake.mjs';
+import { renderPdfWithGraph } from './graph-renderer.mjs';
+import { isHiddenSlideXml, mapRenderedPagesToSlides } from './slide-visibility.mjs';
 import { workerLabel } from './worker-identity.mjs';
 import { downloadSource as downloadSourceFromR2, putObject as putObjectR2, deleteObjects as deleteObjectsR2, listPrefix as listPrefixR2 } from './source-storage.mjs';
 
 const execFileAsync = promisify(execFile);
 const repoRoot = process.cwd();
 const tmpRoot = path.join(repoRoot, '.tmp', 'worker');
-const soffice = process.env.SOFFICE_BIN ?? '/opt/homebrew/bin/soffice';
 const pdftoppm = process.env.PDFTOPPM_BIN ?? '/opt/homebrew/bin/pdftoppm';
 const pdfinfo = process.env.PDFINFO_BIN ?? 'pdfinfo';
 const RENDER_BUCKET = 'manual-renders';
@@ -108,7 +111,13 @@ async function downloadSource(sourceFile, tmpDir) {
   const buffer = await downloadSourceFromR2(sourceFile.storage_path);
   const filePath = path.join(tmpDir, sourceFile.file_name);
   await writeFile(filePath, buffer);
-  return filePath;
+  return { filePath, checksum: createHash('sha256').update(buffer).digest('hex') };
+}
+
+async function sha256File(filePath) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 function parsePositiveInt(value, fallback) {
@@ -161,34 +170,13 @@ async function renderPdfRange({ pdfPath, tmpDir, renderDpi, from, to, chunkIndex
     .sort((a, b) => a.page - b.page);
 }
 
-async function renderSlides(pptPath, tmpDir) {
-  // 고유 프로필 디렉터리(-env:UserInstallation)로 headless soffice 락/행을 방지하고, 타임아웃을 둔다.
-  const profile = `file://${path.join(tmpDir, 'loprofile')}`;
-  // LibreOffice 기본 PDF 내보내기는 이미지를 JPEG 로 재압축해 스크린샷 글자 주변에 아티팩트를 남긴다.
-  // 무손실 + 해상도 축소 없음으로 먼저 시도하고, 필터를 못 알아듣는 LO 면 기본 pdf 로 폴백한다.
-  const losslessFilter =
-    'pdf:impress_pdf_Export:{"UseLosslessCompression":{"type":"boolean","value":true},"ReduceImageResolution":{"type":"boolean","value":false}}';
-  const filters = process.env.RENDER_LOSSLESS === '0' ? ['pdf'] : [losslessFilter, 'pdf'];
-  let lastError = null;
-  let pdfName = null;
-  for (const filter of filters) {
-    try {
-      await execFileAsync(
-        soffice,
-        [`-env:UserInstallation=${profile}`, '--headless', '--norestore', '--convert-to', filter, '--outdir', tmpDir, pptPath],
-        { maxBuffer: 1024 * 1024 * 16, timeout: Number(process.env.SOFFICE_TIMEOUT_MS ?? 180000), killSignal: 'SIGKILL' },
-      );
-      pdfName = (await readdir(tmpDir)).find((file) => file.toLowerCase().endsWith('.pdf'));
-      if (pdfName) break;
-      lastError = new Error(`no PDF produced (filter=${filter.slice(0, 24)})`);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (!pdfName) throw new Error(formatExecError(lastError, 'LibreOffice PDF conversion failed'));
-  const pdfPath = path.join(tmpDir, pdfName);
+async function renderSlides(pptPath, tmpDir, { slideNumbers, hiddenSlideNumbers }) {
+  const provider = 'microsoft_graph';
+  const pdfPath = await renderPdfWithGraph({ sourcePath: pptPath, outputDir: tmpDir });
+  const pdfChecksum = await sha256File(pdfPath);
   const renderDpi = process.env.RENDER_DPI ?? '300';
   const pageCount = await countPdfPages(pdfPath);
+  const renderedSlideNumbers = mapRenderedPagesToSlides({ pageCount, slideNumbers, hiddenSlideNumbers });
   const chunkSize = parsePositiveInt(process.env.PDFTOPPM_CHUNK_SIZE, 20);
   const renderedByPage = new Map();
 
@@ -209,7 +197,18 @@ async function renderSlides(pptPath, tmpDir) {
     }
   }
 
-  return Array.from({ length: pageCount }, (_, index) => renderedByPage.get(index + 1)).filter(Boolean);
+  const slidesByNumber = new Map();
+  for (let index = 0; index < renderedSlideNumbers.length; index += 1) {
+    slidesByNumber.set(renderedSlideNumbers[index], renderedByPage.get(index + 1));
+  }
+
+  return {
+    slidesByNumber,
+    provider,
+    pdfChecksum,
+    pageCount,
+    renderedSlideNumbers,
+  };
 }
 
 async function uploadFile(_bucket, storagePath, filePath, contentType) {
@@ -382,7 +381,12 @@ export async function runOnce(jobIdArg) {
     if (taskError || !task) throw new Error(taskError?.message ?? 'Task not found.');
     const conversionMode = task.conversion_mode ?? 'capture';
 
-    const pptPath = await downloadSource(sourceFile, tmpDir);
+    const { filePath: pptPath, checksum: sourceChecksum } = await downloadSource(sourceFile, tmpDir);
+    const { error: checksumError } = await supabase
+      .from('manual_source_files')
+      .update({ checksum: sourceChecksum })
+      .eq('id', sourceFile.id);
+    if (checksumError) throw new Error(`Source checksum update failed: ${checksumError.message}`);
     const [presentationXml, slideEntries] = await Promise.all([
       unzipText(pptPath, 'ppt/presentation.xml'),
       unzipSlideList(pptPath),
@@ -393,98 +397,24 @@ export async function runOnce(jobIdArg) {
       cy: firstNumber(presentationXml, /<p:sldSz[^>]*cy="(\d+)"/),
     };
 
-    // 슬라이드 → 레이아웃 XML (이미지 박스가 slideLayout 에 있는 v2 덱 지원). 레이아웃은 캐시.
-    const layoutXmlCache = new Map();
-    async function layoutXmlFor(slideEntry) {
-      try {
-        const relsEntry = slideEntry.replace(/slides\/(slide\d+\.xml)$/, 'slides/_rels/$1.rels');
-        const rels = await unzipText(pptPath, relsEntry);
-        const target = rels.match(/Target="[^"]*slideLayouts\/([^"]+)"/)?.[1];
-        if (!target) return null;
-        const layoutEntry = `ppt/slideLayouts/${target}`;
-        if (!layoutXmlCache.has(layoutEntry)) layoutXmlCache.set(layoutEntry, await unzipText(pptPath, layoutEntry));
-        return layoutXmlCache.get(layoutEntry);
-      } catch {
-        return null;
-      }
-    }
+    const slideDocuments = await Promise.all(slideEntries.map(async (entry) => {
+      const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
+      const slideXml = await unzipText(pptPath, entry);
+      return { entry, slideNumber, slideXml, hidden: isHiddenSlideXml(slideXml) };
+    }));
+    const slideNumbers = slideDocuments.map((slide) => slide.slideNumber);
+    const hiddenSlideNumbers = slideDocuments.filter((slide) => slide.hidden).map((slide) => slide.slideNumber);
 
-    // (group_bake) 크롭용 스트립 렌더: 이미지박스 밖 본문 텍스트 shape 를 XML 에서 제거한
-    // 사본 PPTX 를 만들어 따로 렌더한다 — 크롭 안에 본문 글자가 픽셀로도 존재하지 않게.
-    // (마스킹/클램프로는 본문 컬럼까지 걸쳐 그린 말풍선과 본문 글자를 분리할 수 없음)
-    const slideXmlByEntry = new Map();
-    const chosenBoxByEntry = new Map(); // 슬라이드별 확정 이미지박스(감지 or 덱 표준 판)
-    let strippedRendered = null;
-    if (conversionMode === 'group_bake') {
-      try {
-        // pass A: 전 슬라이드 박스 감지 + 덱 표준 판(최빈 좌표) 산출
-        const preInfo = [];
-        const freq = new Map();
-        for (const entry of slideEntries) {
-          const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
-          const xml = await unzipText(pptPath, entry);
-          slideXmlByEntry.set(entry, xml);
-          const preParsed = parseSlideShapes(xml, slideSize);
-          const role = classifyRole(preParsed, slideNumber);
-          const hasPics = preParsed.pics.some((p) => p.areaRatio >= 0.005);
-          const rawBox = parseImageBoxes(xml, await layoutXmlFor(entry), slideSize)[0] ?? null;
-          preInfo.push({ entry, xml, role, hasPics, rawBox });
-          if (rawBox) {
-            const key = [rawBox.xFrac, rawBox.yFrac, rawBox.wFrac, rawBox.hFrac].map((v) => v.toFixed(3)).join(',');
-            const cur = freq.get(key) ?? { count: 0, box: rawBox };
-            cur.count += 1;
-            freq.set(key, cur);
-          }
-        }
-        // 덱 표준 판 = 최빈 박스(3장 이상일 때만 신뢰) — 박스 미감지 content 슬라이드의 폴백.
-        // "크롭은 왼쪽 이미지박스로 항상 통일" 규칙: 미감지 슬라이드도 판 좌표로 자른다.
-        let modeEntry = null;
-        for (const v of freq.values()) {
-          if (v.count >= 3 && (!modeEntry || v.count > modeEntry.count)) modeEntry = v;
-        }
-        const modeBox = modeEntry?.box ?? null;
-        // pass B: 슬라이드별 확정 박스 + 본문 텍스트 스트립(기준 = 원시 박스 — 판 밖 본문은 무조건 제거)
-        const modified = [];
-        for (const info of preInfo) {
-          const box = info.rawBox ?? (info.role === 'content' && info.hasPics ? modeBox : null);
-          if (!box) continue;
-          chosenBoxByEntry.set(info.entry, box);
-          if (info.role !== 'content' || !info.hasPics) continue;
-          const stripped = stripOutsideTextShapes(info.xml, box, slideSize);
-          if (stripped) modified.push({ entry: info.entry, xml: stripped });
-        }
-        if (modified.length) {
-          const stageDir = path.join(tmpDir, 'strip-src');
-          for (const m of modified) {
-            await mkdir(path.dirname(path.join(stageDir, m.entry)), { recursive: true });
-            await writeFile(path.join(stageDir, m.entry), m.xml);
-          }
-          const strippedPpt = path.join(tmpDir, 'stripped.pptx');
-          await copyFile(pptPath, strippedPpt);
-          await execFileAsync('zip', ['-q', strippedPpt, ...modified.map((m) => m.entry)], {
-            cwd: stageDir,
-            maxBuffer: 1024 * 1024 * 64,
-          });
-          const stripRenderDir = path.join(tmpDir, 'strip-render');
-          await mkdir(stripRenderDir, { recursive: true });
-          strippedRendered = await renderSlides(strippedPpt, stripRenderDir);
-        }
-      } catch (error) {
-        console.warn('[group-bake] 스트립 렌더 실패 — 원본 렌더로 크롭:', error instanceof Error ? error.message : String(error));
-        strippedRendered = null;
-      }
-    }
-
-    // 렌더는 덱당 1회만: group_bake 에서 스트립 렌더가 만들어졌으면 그것을 크롭·표시 겸용으로 쓴다.
-    // (렌더 2회는 웹+워커 단일 컨테이너에서 CPU 를 포화시켜 웹까지 마비시켰음)
-    const renderedSlides = strippedRendered ?? (await renderSlides(pptPath, tmpDir));
+    // 원본 PPT를 덱당 정확히 한 번 렌더한다. PowerPoint PDF가 숨김 슬라이드를 제외해도
+    // 원본 slide_number와 PDF page를 명시적으로 매핑해 뒤 슬라이드 이미지가 밀리지 않게 한다.
+    const renderResult = await renderSlides(pptPath, tmpDir, { slideNumbers, hiddenSlideNumbers });
+    const renderedSlides = renderResult.slidesByNumber;
 
     // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
     // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 이미지박스→그룹→영역 베이킹)
     const parsedSlides = [];
-    for (const entry of slideEntries) {
-      const slideNumber = Number(entry.match(/slide(\d+)/)[1]);
-      const slideXml = slideXmlByEntry.get(entry) ?? (await unzipText(pptPath, entry));
+    for (const { slideNumber, slideXml, hidden } of slideDocuments) {
+      if (hidden) continue;
       const parsed = parseSlideShapes(slideXml, slideSize);
       const role = classifyRole(parsed, slideNumber);
       const section = role === 'section' ? extractSection(parsed) : null;
@@ -497,48 +427,23 @@ export async function runOnce(jobIdArg) {
 
       let screenshots = [];
       if (role === 'content') {
+        const detectedScreenshots = screenshotCandidates(parsed);
         if (conversionMode === 'group_bake') {
-          const localRender = renderedSlides[slideNumber - 1];
-          const hasRealPics = parsed.pics.some((p) => p.areaRatio >= 0.005);
-
-          // 확정 규칙(성빈님): 크롭 = 왼쪽 이미지박스(연회색 판) 그 영역만 — 슬라이드당 1장.
-          //   합집합·연쇄·픽셀확장 없음. 미감지 슬라이드는 프리패스의 덱 표준 판 사용.
-          const chosenBox = hasRealPics ? chosenBoxByEntry.get(entry) ?? null : null;
-          let boxes = chosenBox ? [boxCropRect(chosenBox, parsed)] : [];
-          let labelOf = () => '이미지 박스';
-
-          // 2순위: 그룹(grpSp) bbox — 이미지 박스가 없는 덱의 기존 동작.
-          if (!boxes.length) {
-            boxes = parseGroupBoxes(slideXml, slideSize);
-            labelOf = (i) => `Group ${i + 1}`;
-          }
-
-          // 3순위: 스크린샷 후보 영역(휴리스틱) — 그룹조차 없는 슬라이드(단독 이미지 등).
-          let zones = null;
-          if (!boxes.length) {
-            zones = screenshotCandidates(parsed);
-            boxes = zones.map((z) => ({
-              xFrac: z.bbox.left / 100,
-              yFrac: z.bbox.top / 100,
-              wFrac: z.bbox.width / 100,
-              hFrac: z.bbox.height / 100,
-            }));
-            labelOf = (i) => zones[i]?.label ?? `이미지 영역 ${i + 1}`;
-          }
-
-          if (boxes.length > 0 && localRender) {
-            // 스트립 렌더(본문 텍스트 제거본)에서 판 영역만 크롭.
-            const croppedPaths = await cropGroups(localRender, boxes, tmpDir, slideNumber);
-            screenshots = croppedPaths.map((croppedPath, index) => ({
-              label: labelOf(index),
+          // 표/FAQ처럼 표준 이미지 박스 자체가 없는 예외 슬라이드는 자르지 않는다.
+          // 이미지가 있는 content slide의 좌표는 탐지값을 쓰지 않고, 전부 동일한 실측 박스를 쓴다.
+          const localRender = detectedScreenshots.length > 0 ? renderedSlides.get(slideNumber) : null;
+          if (localRender) {
+            const croppedPaths = await cropGroups(localRender, [boxCropRect(FIXED_CAPTURE_BOX)], tmpDir, slideNumber);
+            screenshots = croppedPaths.map((croppedPath) => ({
+              label: '이미지 박스',
               bbox: null, // 구워진 이미지라 crop_box 불필요
-              confidence: zones ? zones[index]?.confidence ?? 0.8 : 0.95,
+              confidence: 1,
               imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
             }));
           }
         } else {
           // capture 모드 (기본): 기존 동작 유지
-          screenshots = screenshotCandidates(parsed);
+          screenshots = detectedScreenshots;
         }
       }
 
@@ -550,7 +455,7 @@ export async function runOnce(jobIdArg) {
         title,
         blocks: role === 'content' ? buildFunctionBlocks(parsed, functionName) : [],
         screenshots,
-        localRender: renderedSlides[slideNumber - 1] ?? null,
+        localRender: renderedSlides.get(slideNumber) ?? null,
       });
     }
 
@@ -679,11 +584,25 @@ export async function runOnce(jobIdArg) {
       await insertSlide(slide, null, null);
     }
 
+    const renderedSlideChecksums = {};
+    for (const slide of parsedSlides) {
+      if (slide.localRender) renderedSlideChecksums[String(slide.slide_number)] = await sha256File(slide.localRender);
+    }
     const manifest = {
       jobId: job.id,
       taskId: job.task_id,
       runNumber: job.run_number,
       sourceFileName: sourceFile.file_name,
+      provenance: {
+        sourceSha256: sourceChecksum,
+        renderProvider: renderResult.provider,
+        pdfSha256: renderResult.pdfChecksum,
+        renderedSlideSha256: renderedSlideChecksums,
+        renderedSlideNumbers: renderResult.renderedSlideNumbers,
+        hiddenSlideNumbers,
+        captureBox: conversionMode === 'group_bake' ? FIXED_CAPTURE_BOX : null,
+        cropPadding: conversionMode === 'group_bake' ? 0 : null,
+      },
       slideSize,
       categories: categories.map((c) => ({
         title: c.title,

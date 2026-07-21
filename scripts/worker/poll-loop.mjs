@@ -1,5 +1,5 @@
 // 변환 worker 폴링 루프. Supabase 의 queued job 을 계속 가져와 처리한다.
-// LibreOffice/Poppler 가 설치된 컨테이너(Railway 등)에서 상주 실행한다.
+// Microsoft Graph 인증과 Poppler가 준비된 컨테이너(Railway 등)에서 상주 실행한다.
 import { createClient } from '@supabase/supabase-js';
 import { runOnce, reclaimStuckJobs, reclaimStuckPublishRuns } from './run-conversion-job.mjs';
 import { runPublishOnce } from './run-publish-job.mjs';

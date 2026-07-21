@@ -1,7 +1,16 @@
 # 세션 상태 (최신본 — 모든 세션은 이 파일부터 읽는다)
 
 > **갱신 규칙**: 상태가 바뀌는 작업을 한 세션은 이 파일을 그 자리에서 갱신한다. 날짜별 사본 대신 이 파일 하나가 정본.
-> 마지막 갱신: **2026-07-20** (이전 스냅샷: SESSION_STATE_2026-07-15.md)
+> 마지막 갱신: **2026-07-21** (이전 스냅샷: SESSION_STATE_2026-07-15.md)
+
+## Microsoft Graph 렌더러 마이그레이션 (2026-07-21)
+
+- `staging`에서 PPT/PPTX→PDF 런타임을 Microsoft Graph PowerPoint renderer 단일 경로로 전환했다. 다른 renderer fallback은 없다.
+- 모든 이미지 본문 페이지는 실측 고정 박스 `x=.036458, y=.171296, w=.606771, h=.694444`, padding 0으로 캡처한다. 이미지 없는 FAQ/표 페이지는 asset을 만들지 않는다.
+- 제공된 5개 덱 × 6개 변형(동일/다른 이름, 동일/수정 bytes, 동일 크기 수정) 로컬 E2E 결과: **30/30 case, 254/254 check, 실패 0**.
+- 로컬 검수 보고서: `docs/qa/graph-migration-20260721/local/index.html`.
+- 전체 게이트, Next production build, LibreOffice 없는 Docker image build가 통과했다.
+- Railway 운영 전환에는 Graph 변수와 `/data/ms-graph-refresh-token` 영속 volume 설정이 필요하다. 본 절의 운영 배포 완료 여부는 아래 배포 상태 및 최신 git 기록을 다시 확인한다.
 
 ## 지금 이 순간의 사실 (2026-07-20)
 

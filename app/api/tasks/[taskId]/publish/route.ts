@@ -64,6 +64,23 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ message: '이미 발행이 진행 중입니다. 잠시만 기다려 주세요.' }, { status: 409 });
   }
 
+  // 발행 입력을 이 시점의 최신 성공 변환 job에 고정한다.
+  // 이후 task에 다른 run이 생겨도 워커는 이 job의 slides/assets/blocks만 읽는다.
+  const { data: conversionJob, error: conversionJobError } = await supabase
+    .from('manual_conversion_jobs')
+    .select('id,run_number')
+    .eq('task_id', taskId)
+    .eq('status', 'succeeded')
+    .order('run_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (conversionJobError) {
+    return NextResponse.json({ message: `발행할 변환 결과를 확인하지 못했습니다: ${conversionJobError.message}` }, { status: 500 });
+  }
+  if (!conversionJob) {
+    return NextResponse.json({ message: '성공한 변환 결과가 없어 발행할 수 없습니다. 먼저 변환을 완료해 주세요.' }, { status: 409 });
+  }
+
   // ── validation 3: 노션 페이지에 integration 이 연결돼 접근 가능한가(발행 전에 미리 확인) ──
   // 이게 없으면 발행을 다 돌리고 나서야 "페이지 못 찾음" 에러가 떠서 사용자가 오래 헤맨다.
   const notionToken = process.env.NOTION_TOKEN;
@@ -96,7 +113,7 @@ export async function POST(request: Request, context: RouteContext) {
       task_id: taskId,
       status: 'queued',
       target_page_id: pageId,
-      payload: { notionTarget: notionLink, excludedFnIds },
+      payload: { notionTarget: notionLink, excludedFnIds, conversionJobId: conversionJob.id },
       progress: { done: 0, total: 0, label: '대기 중' },
     })
     .select('id')
