@@ -5,16 +5,21 @@
 
 ## Microsoft Graph 렌더러 마이그레이션 (2026-07-21)
 
-- `staging`에서 PPT/PPTX→PDF 런타임을 Microsoft Graph PowerPoint renderer 단일 경로로 전환했다. 다른 renderer fallback은 없다.
+- `staging`과 `main`에서 PPT/PPTX→PDF 런타임을 Microsoft Graph PowerPoint renderer 단일 경로로 전환했다. 다른 renderer fallback은 없다. 런타임 마이그레이션 커밋은 `859ba42`다.
 - 모든 이미지 본문 페이지는 실측 고정 박스 `x=.036458, y=.171296, w=.606771, h=.694444`, padding 0으로 캡처한다. 이미지 없는 FAQ/표 페이지는 asset을 만들지 않는다.
 - 제공된 5개 덱 × 6개 변형(동일/다른 이름, 동일/수정 bytes, 동일 크기 수정) 로컬 E2E 결과: **30/30 case, 254/254 check, 실패 0**.
 - 로컬 검수 보고서: `docs/qa/graph-migration-20260721/local/index.html`.
 - 전체 게이트, Next production build, LibreOffice 없는 Docker image build가 통과했다.
-- Railway 운영 전환에는 Graph 변수와 `/data/ms-graph-refresh-token` 영속 volume 설정이 필요하다. 본 절의 운영 배포 완료 여부는 아래 배포 상태 및 최신 git 기록을 다시 확인한다.
+- Railway 운영 배포 `65bea070-1105-493d-863c-dbe332589fca`가 SUCCESS로 완료됐고, 운영 HTTP 200 및 worker `version=859ba42`, `online=true`를 확인했다.
+- 운영에서 POS·테이블오더·매장관리 APP 3개 덱 × 6개 변형 E2E 결과: **18/18 case, 154/154 check, 실패 0**. 동일 파일명 수정본과 원본과 정확히 같은 파일 크기의 수정본도 모두 새 렌더 결과를 반영했다.
+- 운영 검수 보고서: `docs/qa/graph-migration-20260721/production/index.html`.
+- Railway Graph 위임 인증 갱신 토큰은 5GB 영속 volume의 `/data/ms-graph-refresh-token`에 mode 0600으로 저장된다. 재배포 뒤에도 유지되도록 구성했고 원격 파일 존재·크기·권한을 확인했다.
+- 기존 JSONB 발행 pin 구조를 그대로 사용하므로 이번 전환에 필요한 Supabase schema migration은 없다. 소스/job/run/manifest SHA pin 회귀 테스트가 통과했다.
 
-## 지금 이 순간의 사실 (2026-07-20)
+## 지금 이 순간의 사실 (2026-07-21)
 
 ### 배포 상태
+- **운영(main = Railway)**: Microsoft Graph 단일 렌더러 커밋 `859ba42` 배포 완료. 운영 3개 덱 18개 E2E와 154개 검증 항목 전부 통과. LibreOffice 런타임/패키지/fallback 없음.
 - **운영(main = Railway)**: **`ddf5403` 까지 배포 완료 (2026-07-20 14:02)** — 발행 백그라운드(faa1ba9)·크롭 연쇄합집합 수정(c7f9e89)·워커 가시성(3475eeb) 포함. 클라우드 Supabase에 006/007 마이그레이션 적용됨(성빈님이 SQL 에디터로). 운영 워커 하트비트 검증: online, version=ddf5403, env=클라우드.
 - (이전) `f4a7fe2` 까지 배포됨. **이미 R2 체제**(원본+결과물 모두 R2, Railway 변수 세팅 완료), 무손실 렌더, 큰 덱(200장+) 수정 포함. 오늘도 운영에서 변환·발행 정상 동작 확인됨.
 - **스테이지 브랜치 `feat/structure-hardening-stage`**: main 대비 +3 커밋 (배포 대기, 성빈님 로컬 테스트 1차 확인됨):
