@@ -1,0 +1,65 @@
+{
+  "capturedAt": "2026-07-22T02:48:37.192Z",
+  "task": {
+    "id": "eee0fbdf-384c-4610-abc8-e234f9a4e941",
+    "status": "review_required",
+    "current_run_number": 1
+  },
+  "jobs": [
+    {
+      "id": "663b1fa3-78f9-4c90-8b6d-74a15cc29919",
+      "status": "succeeded",
+      "run_number": 1,
+      "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/manifest.json",
+      "error_message": null,
+      "created_at": "2026-07-22T02:44:17.030919+00:00",
+      "started_at": "2026-07-22T02:44:18.115+00:00",
+      "finished_at": "2026-07-22T02:45:34.201+00:00"
+    }
+  ],
+  "currentJob": {
+    "id": "663b1fa3-78f9-4c90-8b6d-74a15cc29919",
+    "status": "succeeded",
+    "run_number": 1,
+    "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/manifest.json",
+    "error_message": null,
+    "created_at": "2026-07-22T02:44:17.030919+00:00",
+    "started_at": "2026-07-22T02:44:18.115+00:00",
+    "finished_at": "2026-07-22T02:45:34.201+00:00"
+  },
+  "latestSuccessfulJob": {
+    "id": "663b1fa3-78f9-4c90-8b6d-74a15cc29919",
+    "status": "succeeded",
+    "run_number": 1,
+    "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/manifest.json",
+    "error_message": null,
+    "created_at": "2026-07-22T02:44:17.030919+00:00",
+    "started_at": "2026-07-22T02:44:18.115+00:00",
+    "finished_at": "2026-07-22T02:45:34.201+00:00"
+  },
+  "resultRows": {
+    "slides": 136,
+    "slideJobIds": [
+      "663b1fa3-78f9-4c90-8b6d-74a15cc29919"
+    ],
+    "slideRunPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/"
+    ],
+    "assets": 120,
+    "assetJobIds": [
+      "663b1fa3-78f9-4c90-8b6d-74a15cc29919"
+    ],
+    "assetRunPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/"
+    ]
+  },
+  "storage": {
+    "objectCount": 257,
+    "runPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/"
+    ],
+    "manifestPaths": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/manifest.json"
+    ]
+  }
+}

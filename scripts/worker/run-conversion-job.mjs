@@ -14,7 +14,7 @@ import {
   parseSlideShapes,
   screenshotCandidates,
 } from './ppt-parse.mjs';
-import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups } from './group-bake.mjs';
+import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups, shouldUseFixedCapture } from './group-bake.mjs';
 import { renderPdfWithGraph } from './graph-renderer.mjs';
 import { isHiddenSlideXml, mapRenderedPagesToSlides } from './slide-visibility.mjs';
 import { workerLabel } from './worker-identity.mjs';
@@ -427,11 +427,11 @@ export async function runOnce(jobIdArg) {
 
       let screenshots = [];
       if (role === 'content') {
-        const detectedScreenshots = screenshotCandidates(parsed);
-        if (conversionMode === 'group_bake') {
-          // 표/FAQ처럼 표준 이미지 박스 자체가 없는 예외 슬라이드는 자르지 않는다.
-          // 이미지가 있는 content slide의 좌표는 탐지값을 쓰지 않고, 전부 동일한 실측 박스를 쓴다.
-          const localRender = detectedScreenshots.length > 0 ? renderedSlides.get(slideNumber) : null;
+        if (shouldUseFixedCapture(conversionMode, role)) {
+          // 고정 캡처 모드는 OOXML의 이미지/그룹 구성으로 캡처 여부를 다시 추론하지 않는다.
+          // 사용자가 이미지를 교체하거나 그룹을 다시 만들면 pic 탐지가 달라질 수 있으므로,
+          // 모든 content slide를 동일한 실측 박스로 캡처한다.
+          const localRender = renderedSlides.get(slideNumber) ?? null;
           if (localRender) {
             const croppedPaths = await cropGroups(localRender, [boxCropRect(FIXED_CAPTURE_BOX)], tmpDir, slideNumber);
             screenshots = croppedPaths.map((croppedPath) => ({
@@ -443,7 +443,7 @@ export async function runOnce(jobIdArg) {
           }
         } else {
           // capture 모드 (기본): 기존 동작 유지
-          screenshots = detectedScreenshots;
+          screenshots = screenshotCandidates(parsed);
         }
       }
 

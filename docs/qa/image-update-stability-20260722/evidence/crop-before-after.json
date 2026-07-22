@@ -1,0 +1,122 @@
+[
+  {
+    "slideNumber": 5,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-005-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 0.06190691867723485,
+      "changedChannelRatio": 0.0005260865778242313,
+      "maxChannelDifference": 255
+    }
+  },
+  {
+    "slideNumber": 7,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-007-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 1
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 1
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 27.059798507679353,
+      "changedChannelRatio": 0.3366376331910693,
+      "maxChannelDifference": 255
+    }
+  },
+  {
+    "slideNumber": 14,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-014-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 26.574789071799785,
+      "changedChannelRatio": 0.34520744418314314,
+      "maxChannelDifference": 255
+    }
+  },
+  {
+    "slideNumber": 16,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-016-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 0,
+      "changedChannelRatio": 0,
+      "maxChannelDifference": 0
+    }
+  },
+  {
+    "slideNumber": 26,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-026-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 27.960427372760794,
+      "changedChannelRatio": 0.3017780100455826,
+      "maxChannelDifference": 255
+    }
+  },
+  {
+    "slideNumber": 37,
+    "outputPath": "/tmp/codex-store-update-Fe9GOx/final-pipeline-evidence/slide-037-before-after.png",
+    "before": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "after": {
+      "width": 1335,
+      "height": 860,
+      "topBorderRatio": 0.997003745318352
+    },
+    "difference": {
+      "comparable": true,
+      "meanAbsoluteDifference": 3.5232534912754407,
+      "changedChannelRatio": 0.04247597479894318,
+      "maxChannelDifference": 255
+    }
+  }
+]

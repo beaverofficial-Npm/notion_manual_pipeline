@@ -1,0 +1,75 @@
+{
+  "capturedAt": "2026-07-22T02:50:38.388Z",
+  "task": {
+    "id": "eee0fbdf-384c-4610-abc8-e234f9a4e941",
+    "status": "review_required",
+    "current_run_number": 2
+  },
+  "jobs": [
+    {
+      "id": "663b1fa3-78f9-4c90-8b6d-74a15cc29919",
+      "status": "succeeded",
+      "run_number": 1,
+      "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/1/manifest.json",
+      "error_message": null,
+      "created_at": "2026-07-22T02:44:17.030919+00:00",
+      "started_at": "2026-07-22T02:44:18.115+00:00",
+      "finished_at": "2026-07-22T02:45:34.201+00:00"
+    },
+    {
+      "id": "9beeaecb-cc40-453b-a70a-04ec9f7e6a8f",
+      "status": "succeeded",
+      "run_number": 2,
+      "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/manifest.json",
+      "error_message": null,
+      "created_at": "2026-07-22T02:48:37.402785+00:00",
+      "started_at": "2026-07-22T02:48:48.78+00:00",
+      "finished_at": "2026-07-22T02:50:05.662+00:00"
+    }
+  ],
+  "currentJob": {
+    "id": "9beeaecb-cc40-453b-a70a-04ec9f7e6a8f",
+    "status": "succeeded",
+    "run_number": 2,
+    "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/manifest.json",
+    "error_message": null,
+    "created_at": "2026-07-22T02:48:37.402785+00:00",
+    "started_at": "2026-07-22T02:48:48.78+00:00",
+    "finished_at": "2026-07-22T02:50:05.662+00:00"
+  },
+  "latestSuccessfulJob": {
+    "id": "9beeaecb-cc40-453b-a70a-04ec9f7e6a8f",
+    "status": "succeeded",
+    "run_number": 2,
+    "manifest_path": "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/manifest.json",
+    "error_message": null,
+    "created_at": "2026-07-22T02:48:37.402785+00:00",
+    "started_at": "2026-07-22T02:48:48.78+00:00",
+    "finished_at": "2026-07-22T02:50:05.662+00:00"
+  },
+  "resultRows": {
+    "slides": 136,
+    "slideJobIds": [
+      "9beeaecb-cc40-453b-a70a-04ec9f7e6a8f"
+    ],
+    "slideRunPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/"
+    ],
+    "assets": 120,
+    "assetJobIds": [
+      "9beeaecb-cc40-453b-a70a-04ec9f7e6a8f"
+    ],
+    "assetRunPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/"
+    ]
+  },
+  "storage": {
+    "objectCount": 257,
+    "runPrefixes": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/"
+    ],
+    "manifestPaths": [
+      "eee0fbdf-384c-4610-abc8-e234f9a4e941/runs/2/manifest.json"
+    ]
+  }
+}

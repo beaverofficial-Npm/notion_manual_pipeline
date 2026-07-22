@@ -1,0 +1,11 @@
+{
+  "taskId": "eee0fbdf-384c-4610-abc8-e234f9a4e941",
+  "firstStatus": 201,
+  "job": {
+    "id": "92cd225b-77b6-4a15-8d69-01440368de93",
+    "run_number": 3,
+    "status": "queued"
+  },
+  "duplicateStatus": 409,
+  "duplicateMessage": "이미 실행 중인 작업입니다."
+}

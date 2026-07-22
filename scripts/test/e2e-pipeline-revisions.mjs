@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
 import { FIXED_CAPTURE_BOX } from '../worker/group-bake.mjs';
-import { classifyRole, parseSlideShapes, screenshotCandidates } from '../worker/ppt-parse.mjs';
+import { classifyRole, parseSlideShapes } from '../worker/ppt-parse.mjs';
 import { isHiddenSlideXml } from '../worker/slide-visibility.mjs';
 import { downloadSource } from '../worker/source-storage.mjs';
 
@@ -126,7 +126,9 @@ async function expectedCaptureSlides(item) {
     const slideXml = await unzip(entry);
     if (isHiddenSlideXml(slideXml)) continue;
     const parsed = parseSlideShapes(slideXml, slideSize);
-    if (classifyRole(parsed, slideNumber) === 'content' && screenshotCandidates(parsed).length > 0) eligible.push(slideNumber);
+    // group_bake의 캡처 여부는 OOXML 이미지 탐지 결과와 무관하다. 이미지 교체/재그룹화로
+    // pic 관계가 달라져도 모든 content slide가 동일한 고정 박스로 캡처돼야 한다.
+    if (classifyRole(parsed, slideNumber) === 'content') eligible.push(slideNumber);
   }
   expectedCaptureSlidesByDeck.set(item.logicalDeck, eligible);
   return eligible;
@@ -617,20 +619,31 @@ function compareModified(checks, baseline, candidate) {
     .sort((left, right) => Number(left) - Number(right));
   const unexpectedOutputSlides = actualChangedOutputSlides.filter((slideNumber) => !declaredChanged.has(slideNumber));
   const unexpectedAssetSlides = actualChangedAssetSlides.filter((slideNumber) => !declaredChanged.has(slideNumber));
-  const expectedAssetSlides = Number(baseline.cropGate?.expectedAssetSlides ?? Object.keys(baseline.assetSha256BySlide).length);
-  const requiredVisibleChanges = Math.ceil(expectedAssetSlides * 0.5);
+  const declaredOutputSlides = [...declaredChanged].filter((slideNumber) => baseline.outputSha256BySlide[slideNumber]);
+  const declaredAssetSlides = [...declaredChanged].filter((slideNumber) => baseline.assetSha256BySlide[slideNumber]);
+  const missingDeclaredOutputSlides = declaredOutputSlides.filter((slideNumber) => !actualChangedOutputSlides.includes(slideNumber));
+  const missingDeclaredAssetSlides = declaredAssetSlides.filter((slideNumber) => !actualChangedAssetSlides.includes(slideNumber));
 
   pushComparison(
     checks,
-    actualChangedAssetSlides.length >= requiredVisibleChanges,
-    'MODIFIED_VISIBLE_ASSET_COVERAGE_LOW',
-    `${candidate.caseId}: 실제로 달라진 캡처 이미지 수가 전체의 절반 이상이어야 합니다.`,
+    declaredOutputSlides.length > 0 && missingDeclaredOutputSlides.length === 0,
+    'MODIFIED_DECLARED_OUTPUT_NOT_CHANGED',
+    `${candidate.caseId}: 수정 대상으로 선언한 슬라이드 출력이 모두 달라져야 합니다.`,
     {
-      expectedAssetSlides,
-      requiredVisibleChanges,
-      actualVisibleChanges: actualChangedAssetSlides.length,
+      declaredOutputSlides,
+      actualChangedOutputSlides,
+      missingDeclaredOutputSlides,
+    },
+  );
+  pushComparison(
+    checks,
+    declaredAssetSlides.length > 0 && missingDeclaredAssetSlides.length === 0,
+    'MODIFIED_DECLARED_ASSET_NOT_CHANGED',
+    `${candidate.caseId}: 수정 대상으로 선언한 캡처 이미지가 모두 달라져야 합니다.`,
+    {
+      declaredAssetSlides,
       actualChangedAssetSlides,
-      declaredChangedSlides: [...declaredChanged].map(Number).sort((left, right) => left - right),
+      missingDeclaredAssetSlides,
     },
   );
   pushComparison(
@@ -789,7 +802,8 @@ async function selfTest() {
   };
   assert.equal(compareResults([base, graphAntialiasRepeat]).filter((item) => !item.pass).length, 0);
   const broken = compareResults([base, { ...modified, outputSha256BySlide: base.outputSha256BySlide, assetSha256BySlide: base.assetSha256BySlide }]);
-  assert(broken.some((item) => item.code === 'MODIFIED_VISIBLE_ASSET_COVERAGE_LOW' && !item.pass));
+  assert(broken.some((item) => item.code === 'MODIFIED_DECLARED_OUTPUT_NOT_CHANGED' && !item.pass));
+  assert(broken.some((item) => item.code === 'MODIFIED_DECLARED_ASSET_NOT_CHANGED' && !item.pass));
   console.log('E2E revision harness self-test passed.');
 }
 

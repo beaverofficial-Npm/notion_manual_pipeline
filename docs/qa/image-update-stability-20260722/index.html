@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PPT 이미지 업데이트 안정화 — 마스터 QA 리포트</title>
+  <style>
+    :root{color-scheme:light;font-family:Inter,Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb;--line:#dbe3ef;--muted:#66758f;--good:#08783c;--warn:#9a5b00;--blue:#315ec9}*{box-sizing:border-box}body{margin:0}main{max-width:1460px;margin:auto;padding:40px 28px 90px}header{background:linear-gradient(135deg,#122039,#263f78);color:#fff;border-radius:22px;padding:34px 38px;box-shadow:0 16px 42px #14213d2b}h1{margin:9px 0 12px;font-size:36px;line-height:1.18}h2{margin:46px 0 16px;font-size:25px}h3{margin:27px 0 10px}.eyebrow{font-size:12px;letter-spacing:.13em;text-transform:uppercase;font-weight:800;color:#bcd1ff}.sub{color:#d8e3f8;line-height:1.7;margin:0}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:24px 0}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:0 5px 18px #1c2b4a0a;color:#50617c}.card b{display:block;color:#15233b;font-size:27px;margin-top:7px}.badge{display:inline-block;padding:5px 10px;border-radius:999px;font-weight:800;font-size:12px}.good{background:#d9f9e5;color:var(--good)}.warn{background:#fff0cf;color:var(--warn)}.info{background:#e5edff;color:#244eae}.notice,.method{background:#fff;border:1px solid var(--line);border-left:5px solid var(--blue);padding:18px 22px;border-radius:10px;line-height:1.65}.notice.warnbox{border-left-color:#e09a27;background:#fffdf7}.notice strong{color:#15233b}table{border-collapse:collapse;width:100%;background:#fff;font-size:13px}th,td{border-bottom:1px solid #e6ebf2;padding:11px 12px;text-align:left;vertical-align:top}th{background:#edf2f9;color:#34435b;position:sticky;top:0}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:12px}.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(540px,1fr));gap:16px}.incident{grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}figure{margin:0;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}figure img{display:block;width:100%;height:auto;background:#fff}figcaption{padding:12px 14px;color:#50617c;line-height:1.5}.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.check{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px}.check h3{margin:0 0 8px;font-size:16px}.check p{margin:0;color:var(--muted);line-height:1.55}code{font-family:"SFMono-Regular",Consolas,monospace;font-size:.9em;overflow-wrap:anywhere}.links a{display:inline-block;margin:5px 10px 5px 0;color:#2457c5;font-weight:700}.foot{margin-top:48px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;line-height:1.7}ul,ol{line-height:1.7}.mono{font-family:"SFMono-Regular",Consolas,monospace}.nowrap{white-space:nowrap}@media(max-width:720px){main{padding:18px 12px 60px}header{padding:25px 22px}h1{font-size:28px}.gallery,.incident{grid-template-columns:1fr}}
+  </style>
+</head>
+<body><main>
+  <header>
+    <div class="eyebrow">MASTER QA REPORT · 2026-07-22</div>
+    <h1>PPT 이미지 업데이트 안정화</h1>
+    <p class="sub">같은 파일명·같은 바이트·같은 크기·이름 변경·실패 후 재실행까지 실제 PowerPoint 수정본으로 검증한 마스터 기록입니다.<br>검증 대상: <b>04_비버_매장관리_통합가이드.pptx</b> · Microsoft Graph 렌더 + 고정 영역 캡처</p>
+  </header>
+
+  <div class="summary">
+    <div class="card">최종 판정<b><span class="badge good">PASS</span></b></div>
+    <div class="card">파일 조합<b>7 / 7</b></div>
+    <div class="card">파이프라인 검사<b>67 / 67</b></div>
+    <div class="card">전체 렌더<b>136장</b></div>
+    <div class="card">고정 캡처<b>120장</b></div>
+    <div class="card">수정 반영<b>30 / 30</b></div>
+    <div class="card">비수정 동일<b>106 / 106</b></div>
+  </div>
+
+  <section class="notice warnbox">
+    <strong>운영 보호:</strong> 이번 안정화 QA에서는 운영 앱·운영 DB·운영 작업을 호출하지 않았습니다. 앱은 <code>127.0.0.1:3100</code>, Supabase는 <code>127.0.0.1:54321</code>, 오브젝트 저장소는 <code>localhost:9000</code>을 사용했고, 실제 PowerPoint 렌더만 Microsoft Graph를 사용했습니다. 따라서 이 문서의 판정은 “운영과 같은 코드 경로의 격리 QA 통과”이며 “이번 세션에서 운영 재검증 완료”를 의미하지 않습니다.
+  </section>
+
+  <h2>1. 사건과 검증 질문</h2>
+  <div class="gallery incident">
+    <figure><img src="assets/incident-ppt-source.png" alt="수정한 PowerPoint 원본"><figcaption><b>수정 원본</b><br>PowerPoint에서 화살표·어노테이션 위치와 이미지 영역이 바뀐 상태.</figcaption></figure>
+    <figure><img src="assets/incident-stale-output.png" alt="수정 전처럼 보인 출력"><figcaption><b>문제 출력</b><br>검토/발행 이미지가 수정 전 배치처럼 보여 “이전 이미지 재사용”이 의심된 사건.</figcaption></figure>
+    <figure><img src="assets/incident-distorted-output.png" alt="찌그러진 잘못된 테스트 출력"><figcaption><b>이전 QA의 무효 사례</b><br>테스트 fixture 자체가 변형되어 화면 비율이 찌그러졌던 출력. 이번 QA에서는 네이티브 PowerPoint 편집본을 전체 렌더 비교해 fixture 손상부터 차단했습니다.</figcaption></figure>
+  </div>
+  <p>이번 검증은 다음 세 질문을 분리해서 답하도록 설계했습니다.</p>
+  <ol>
+    <li>고정 이미지 박스가 모든 콘텐츠 페이지에서 동일한 좌표·크기로 캡처되는가?</li>
+    <li>화살표의 미세 변경부터 화면 이미지 교체까지, 선언한 30개 페이지에만 정확히 반영되는가?</li>
+    <li>파일명·바이트·파일 크기가 같아도 매 실행이 새로운 source/job/run으로 처리되고, 실패해도 직전 정상 결과가 보존되는가?</li>
+  </ol>
+
+  <h2>2. 이번에 고친 실제 결함</h2>
+  <div class="checks">
+    <div class="check"><h3>고정 캡처와 OOXML 탐지의 잘못된 결합</h3><p><code>group_bake</code>도 내부적으로 이미지 후보 탐지 결과에 묶여 있어, 이미지 교체·재그룹화 뒤 일부 페이지의 asset이 누락될 수 있었습니다. 이제 모든 <code>content</code> 슬라이드를 OOXML 이미지 구조와 무관하게 동일 박스로 캡처합니다.</p></div>
+    <div class="check"><h3>그룹 안 번호 어노테이션 오분류</h3><p>작은 원형 숫자 1·2가 섹션 번호로 오인되어 콘텐츠 페이지가 캡처 대상에서 빠질 수 있었습니다. 그룹 내부의 작은 숫자는 섹션 근거에서 제외하고, 실제 큰 섹션 번호만 유지했습니다.</p></div>
+    <div class="check"><h3>검증 fixture 손상 탐지 부재</h3><p>PowerPoint 웹에서 슬라이드를 교체하는 과정의 레이아웃 관계 불일치까지 136장 전체 픽셀 비교로 검출했습니다. 손상된 16번 슬라이드는 원본 레이아웃 관계로 복구했고 비수정 106장은 완전 동일을 요구했습니다.</p></div>
+    <div class="check"><h3>변경량 비율 중심의 약한 판정</h3><p>“전체 asset 절반 이상 변경” 같은 간접 기준을 폐기하고, 선언한 30장은 모두 변경·나머지 106장은 모두 동일이라는 정확한 집합 비교로 교체했습니다.</p></div>
+  </div>
+
+  <h2>3. 고정 캡처 계약</h2>
+  <div class="method">
+    <ul>
+      <li>렌더러: <b>Microsoft Graph / PowerPoint</b> — LibreOffice 경로 사용 안 함</li>
+      <li>모드: <b>group_bake</b> — 화살표·번호·강조 박스·교체된 화면 이미지를 렌더 결과 그대로 포함</li>
+      <li>대상: 역할 분류가 <code>content</code>인 모든 페이지, 총 <b>120장</b></li>
+      <li>출력 크기: 전 asset <b>1335×860</b>, crop padding <b>0</b></li>
+      <li>역할 분포: cover 3 · toc 2 · section 11 · content 120 · hidden 1</li>
+      <li>결과 구조: category 11 · function 72 · slide 136 · excluded 5</li>
+    </ul>
+  </div>
+
+  <h2>4. 실제 PowerPoint 수정본 무결성</h2>
+  <div class="table-wrap"><table><thead><tr><th>파일</th><th>크기</th><th>SHA-256</th><th>용도</th></tr></thead><tbody>
+    <tr><td>기준본</td><td>19,426,932 B</td><td><code>eed465e0eef3bfcfb4734df79963326da208aae8151c455739a0855c23919bf5</code></td><td>비교 기준</td></tr>
+    <tr><td>네이티브 수정본</td><td>19,427,060 B</td><td><code>0d1cf4d8b8bc62f3bd0bdd26b89977a02bef61355e05a7a99f8a4ed0ef4cb723</code></td><td>30페이지의 미세 화살표 변경·큰 이미지 교체</td></tr>
+    <tr><td>동일 크기 수정본</td><td>19,426,932 B</td><td><code>6a9590f5aead605fc4776e4d91afa659a8747d00f81e1aaf4cb1524923b5bfc6</code></td><td>크기만으로 재사용하지 않는지 검증</td></tr>
+  </tbody></table></div>
+  <p>3000×1688 렌더 136장을 전수 비교했습니다. 수정 대상으로 선언한 <b>5–15, 17–24, 26–27, 29–37번</b>은 30/30 변경됐고, 비대상 106장은 임계값 5 기준으로 106/106 동일했습니다. 16번은 복구 확인용 음성 대조군으로 픽셀 차이 0입니다.</p>
+
+  <h2>5. 파일명·바이트·크기 7개 조합</h2>
+  <div class="table-wrap"><table><thead><tr><th>케이스</th><th>파일명</th><th>바이트</th><th>크기</th><th>새 task/job/run</th><th>캡처</th><th>결과</th></tr></thead><tbody>
+    <tr><td>기준본</td><td>기준</td><td>기준</td><td>기준</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>같은 이름 + 수정본</td><td>같음</td><td>다름</td><td>다름</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>같은 이름 + 같은 파일</td><td>같음</td><td>같음</td><td>같음</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>다른 이름 + 같은 파일</td><td>다름</td><td>같음</td><td>같음</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>다른 이름 + 수정본</td><td>다름</td><td>다름</td><td>다름</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>같은 크기 + 수정본</td><td>다름</td><td>다름</td><td><b>같음</b></td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>같은 이름·같은 파일 반복</td><td>같음</td><td>같음</td><td>같음</td><td>고유</td><td>120/120</td><td><span class="badge good">PASS</span></td></tr>
+  </tbody></table></div>
+  <p>7개 케이스의 task ID, job ID, source 경로, run prefix는 모두 서로 달랐습니다. 동일 바이트 출력은 기준본과 시각 지문이 일치했고, 수정본 3종은 선언한 30개 출력/asset만 변경됐습니다. 전체 비교 검사 <b>67개 통과, 실패 0</b>입니다.</p>
+
+  <h2>6. 실제 파이프라인 캡처 전후</h2>
+  <p>아래 이미지는 미리 저장한 임의 PNG가 아니라, 각 PPT를 업로드해 worker가 Graph 렌더 후 로컬 오브젝트 저장소에 생성한 <code>group_bake</code> asset을 다시 내려받아 비교한 결과입니다.</p>
+  <div class="gallery">
+    <figure><img src="assets/slide-005-before-after.png" alt="5번 슬라이드 전후"><figcaption><b>5번 · 미세 변경</b> — changed channel 0.0526%. 작은 화살표/표식 수준의 수정도 반영.</figcaption></figure>
+    <figure><img src="assets/slide-007-before-after.png" alt="7번 슬라이드 전후"><figcaption><b>7번 · 이미지 교체</b> — changed channel 33.6638%. 이미지 구조가 달라져도 캡처 누락 없음.</figcaption></figure>
+    <figure><img src="assets/slide-014-before-after.png" alt="14번 슬라이드 전후"><figcaption><b>14번 · 큰 변경</b> — changed channel 34.5207%. 어노테이션 포함 화면 전체가 정상 반영.</figcaption></figure>
+    <figure><img src="assets/slide-016-before-after.png" alt="16번 슬라이드 전후"><figcaption><b>16번 · 음성 대조군</b> — mean difference 0, changed channel 0. 비대상 페이지 불변.</figcaption></figure>
+    <figure><img src="assets/slide-026-before-after.png" alt="26번 슬라이드 전후"><figcaption><b>26번 · 이미지 교체</b> — changed channel 30.1778%. 고정 박스 1335×860 유지.</figcaption></figure>
+    <figure><img src="assets/slide-037-before-after.png" alt="37번 슬라이드 전후"><figcaption><b>37번 · 중간 크기 변경</b> — changed channel 4.2476%. 상단 경계 포함, 비율 왜곡 없음.</figcaption></figure>
+  </div>
+
+  <h2>7. 재실행·중복·실패 복구</h2>
+  <div class="table-wrap"><table><thead><tr><th>Run</th><th>행위</th><th>API 계약</th><th>DB/R2 결과</th><th>판정</th></tr></thead><tbody>
+    <tr><td>1</td><td>기준 변환</td><td>성공</td><td>136 slides · 120 assets · <code>/runs/1/</code></td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>2</td><td>같은 task 재실행</td><td>첫 요청 201 · 즉시 중복 409</td><td>모든 row/object가 새 job과 <code>/runs/2/</code>만 참조, run 1 object 제거</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>3</td><td>Graph token 의도적 실패</td><td>첫 요청 201 · 즉시 중복 409 · job failed</td><td>직전 성공 run 2의 136 slides · 120 assets · 257 objects 완전 보존</td><td><span class="badge good">PASS</span></td></tr>
+    <tr><td>4</td><td>정상 인증 복구</td><td>첫 요청 201 · 즉시 중복 409</td><td>모든 row/object가 새 job과 <code>/runs/4/</code>만 참조</td><td><span class="badge good">PASS</span></td></tr>
+  </tbody></table></div>
+  <p>발행 로직은 발행 시작 시점의 최신 <code>succeeded conversionJobId</code>를 JSONB payload에 고정하고, task 전체 결과로 fallback하지 않는 계약 테스트도 통과했습니다. 실제 Notion 발행은 운영 보호 원칙에 따라 실행하지 않았습니다.</p>
+
+  <h2>8. 자동 검증 및 빌드</h2>
+  <div class="checks">
+    <div class="check"><h3><span class="badge good">PASS</span> npm run verify:all</h3><p>requirements, V2 purpose, Graph renderer, fixed crop, role classifier, publish pin, local fixture flow, TypeScript 전체 통과.</p></div>
+    <div class="check"><h3><span class="badge good">PASS</span> npm run build</h3><p>Next.js 16.2.9 production build, TypeScript, page data 수집, static generation 완료.</p></div>
+    <div class="check"><h3><span class="badge good">PASS</span> ZIP integrity</h3><p>기준본·수정본·동일 크기 수정본의 PPTX 컨테이너 무결성 확인.</p></div>
+    <div class="check"><h3><span class="badge good">PASS</span> 전체 렌더 게이트</h3><p>136장 동일 크기, 대상 30/30 변경, 비대상 106/106 동일.</p></div>
+  </div>
+
+  <h2>9. 결론과 남은 위험</h2>
+  <div class="notice">
+    <strong>결론:</strong> 현재 코드에서는 파일명·파일 크기·동일 바이트를 근거로 이전 변환 결과를 재사용하지 않습니다. 매 요청은 고유한 task/job/source/run 경로로 처리되고, 고정 캡처는 OOXML 이미지 탐지에 기대지 않으며, 실패한 새 run이 직전 성공 결과를 덮지 않습니다. 이번에 사용한 실제 136장 PPT와 30페이지 수정 범위에서는 “수정했는데 이전 이미지가 보이는 현상”이 재현되지 않았습니다.
+  </div>
+  <ul>
+    <li>Microsoft Graph 자체의 일시적인 upstream 오류는 외부 위험으로 남습니다. 실제 QA에서도 한 번 발생했으며 resume 재시도로 성공했습니다.</li>
+    <li>이 문서는 운영 비간섭 QA입니다. 운영에서 사용자가 다음 실제 PPT를 변환할 때에는 새 task/job/run과 수정 페이지 asset을 로그로 대조하는 짧은 사후 확인이 권장됩니다.</li>
+    <li>새 템플릿이 현재 고정 이미지 박스 규격을 벗어나는 경우에는 좌표 계약을 별도로 갱신해야 합니다.</li>
+  </ul>
+
+  <h2>10. 원본 증거</h2>
+  <div class="links">
+    <a href="evidence/verification-summary.json">검증 요약 JSON</a>
+    <a href="evidence/pipeline-7case-full.json">7케이스 전체 파이프라인 JSON</a>
+    <a href="evidence/full-render-136page.json">136페이지 픽셀 비교 JSON</a>
+    <a href="evidence/crop-before-after.json">캡처 전후 지표 JSON</a>
+    <a href="evidence/rerun-before.json">재실행 전 snapshot</a>
+    <a href="evidence/rerun-after-run2.json">run 2 교체 snapshot</a>
+    <a href="evidence/rerun-after-run3-failure.json">run 3 실패 보존 snapshot</a>
+    <a href="evidence/rerun-after-run4-recovery.json">run 4 복구 snapshot</a>
+  </div>
+
+  <div class="foot">작성 기준 시각: 2026-07-22 KST · 저장 위치: <code>docs/qa/image-update-stability-20260722/</code><br>이 문서는 이번 이미지 업데이트 안정화 작업의 단일 마스터 기록이며, 과거의 fixture 변형 기반 QA보다 우선합니다.</div>
+</main></body>
+</html>

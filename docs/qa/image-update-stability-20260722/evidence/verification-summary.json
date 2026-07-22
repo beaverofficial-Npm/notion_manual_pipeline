@@ -1,0 +1,44 @@
+{
+  "generatedAt": "2026-07-22T11:57:55+09:00",
+  "scope": "production-like isolated local QA; production untouched",
+  "environment": {
+    "app": "127.0.0.1:3100",
+    "supabase": "127.0.0.1:54321",
+    "objectStorage": "localhost:9000",
+    "renderProvider": "microsoft_graph"
+  },
+  "pipelineMatrix": {
+    "casesPassed": 7,
+    "casesFailed": 0,
+    "checksPassed": 67,
+    "checksFailed": 0,
+    "slidesPerCase": 136,
+    "assetsPerCase": 120,
+    "assetDimensions": "1335x860"
+  },
+  "nativePowerPointComparison": {
+    "pages": 136,
+    "modifiedTargetsChanged": 30,
+    "modifiedTargetMisses": 0,
+    "nonTargetsUnchanged": 106,
+    "unexpectedNonTargetChanges": 0,
+    "renderDimensions": "3000x1688"
+  },
+  "rerunRecovery": {
+    "duplicateRequests": "409 on runs 2, 3, and 4",
+    "failedRun": 3,
+    "preservedSuccessfulRun": 2,
+    "preservedSlides": 136,
+    "preservedAssets": 120,
+    "preservedObjects": 257,
+    "recoveredRun": 4,
+    "mixedResultRows": 0,
+    "staleRunObjects": 0
+  },
+  "commands": {
+    "npm run verify:all": "passed",
+    "npm run build": "passed",
+    "git diff --check": "passed",
+    "htmlVisualAudit": "passed: 9/9 images loaded, no horizontal overflow"
+  }
+}

@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
-import { classifyRole, parseSlideShapes, screenshotCandidates } from '../worker/ppt-parse.mjs';
+import { classifyRole, parseSlideShapes } from '../worker/ppt-parse.mjs';
 import { isHiddenSlideXml } from '../worker/slide-visibility.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -30,7 +30,7 @@ for (const entry of slideList) {
   const xml = await unzip(entry);
   if (isHiddenSlideXml(xml)) continue;
   const parsed = parseSlideShapes(xml, slideSize);
-  if (classifyRole(parsed, slideNumber) === 'content' && screenshotCandidates(parsed).length > 0) eligible.push(slideNumber);
+  if (classifyRole(parsed, slideNumber) === 'content') eligible.push(slideNumber);
 }
 
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {

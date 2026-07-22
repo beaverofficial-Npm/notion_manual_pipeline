@@ -249,7 +249,9 @@ export function classifyRole(parsed, slideNumber) {
     (s) => !s.isGroupLabel && NUMBER_ONLY_RE.test(s.text) && s.bbox.height >= 6,
   );
   if (bigNumberShape) return 'section';
-  const numberShape = parsed.shapes.some((s) => NUMBER_ONLY_RE.test(s.text));
+  // 이미지 박스 안 그룹의 번호 원형/주석은 화면 어노테이션이지 챕터 번호가 아니다.
+  // 이미지 교체·재그룹화 후에도 역할 판정이 바뀌지 않도록 그룹 내부 숫자는 제외한다.
+  const numberShape = parsed.shapes.some((s) => !s.isGroupLabel && !s.fromGroup && NUMBER_ONLY_RE.test(s.text));
   if (!steps && numberShape) return 'section';
   return 'content';
 }
