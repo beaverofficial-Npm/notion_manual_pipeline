@@ -21,7 +21,7 @@ const requiredPaths = [
   'scripts/worker/run-conversion-job.mjs',
   'scripts/worker/poll-loop.mjs',
   'src/components/pipeline-dashboard.tsx',
-  'src/components/task-review-gallery.tsx',
+  'src/components/task-review-bake.tsx',
   'src/lib/pipeline/tasks.ts',
   'supabase/schema.sql',
   'supabase/storage.sql',

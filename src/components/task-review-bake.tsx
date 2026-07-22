@@ -28,7 +28,7 @@ interface Slide {
 
 interface Asset {
   id: string;
-  kind: string;
+  kind: 'group_bake';
   label: string;
   storage_path?: string | null;
   signed_url?: string | null;

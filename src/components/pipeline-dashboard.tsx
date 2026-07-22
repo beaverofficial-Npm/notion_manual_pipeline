@@ -507,7 +507,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileName: selectedFile.name, fileSize: selectedFile.size, mode: 'group_bake' }),
+        body: JSON.stringify({ fileName: selectedFile.name, fileSize: selectedFile.size }),
       });
       const result = (await response.json()) as Partial<TaskCreateResult> & {
         uploadUrl?: string;
@@ -852,7 +852,7 @@ export function PipelineDashboard({ projects: initialProjects }: PipelineDashboa
             </label>
 
             <div style={styles.newTaskControls}>
-              {/* 변환 방식은 자동 추출(group_bake) 단일 — 레거시 캡쳐 모드는 웹에서 제거됨 */}
+              {/* 변환 방식은 서버에서 고정 영역 캡처 단일 경로로 고정한다. */}
               <Button
                 variant="primary"
                 block

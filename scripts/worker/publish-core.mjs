@@ -2,7 +2,7 @@
 // 웹 트리거 route 는 이 코어를 직접 실행하지 않고 큐에만 넣고, 워커(run-publish-job.mjs)가 이 코어로 발행한다.
 // 연결이 끊겨도 워커가 끝까지 돌리고 진행을 publish_run.progress 에 기록 → 프론트는 그걸 폴링한다.
 import sharp from 'sharp';
-import { downloadSource as getObject, putObject } from './source-storage.mjs';
+import { downloadSource as getObject } from './source-storage.mjs';
 
 const NOTION_VERSION = '2022-06-28';
 const MAX_CHILDREN_PER_REQUEST = 100;
@@ -112,35 +112,12 @@ async function uploadImageToNotion(token, buffer, filename) {
 }
 
 // ── 이미지(sharp + R2) ──
-function clampBox(box) {
-  const left = Math.max(0, Math.min(100, box.left));
-  const top = Math.max(0, Math.min(100, box.top));
-  return { left, top, width: Math.max(1, Math.min(100 - left, box.width)), height: Math.max(1, Math.min(100 - top, box.height)) };
-}
-async function cropRender(renderBuffer, cropBox) {
-  const box = clampBox(cropBox);
-  const image = sharp(renderBuffer);
-  const meta = await image.metadata();
-  const width = meta.width ?? 0, height = meta.height ?? 0;
-  if (!width || !height) throw new Error('렌더 이미지 크기를 읽지 못했습니다.');
-  const left = Math.round((box.left / 100) * width), top = Math.round((box.top / 100) * height);
-  const cropWidth = Math.max(1, Math.min(width - left, Math.round((box.width / 100) * width)));
-  const cropHeight = Math.max(1, Math.min(height - top, Math.round((box.height / 100) * height)));
-  return image.extract({ left, top, width: cropWidth, height: cropHeight }).png().toBuffer();
-}
 async function resizeForPublish(buffer) {
   if (!Number.isFinite(PUBLISH_MAX_WIDTH) || PUBLISH_MAX_WIDTH <= 0) return buffer;
   const meta = await sharp(buffer).metadata();
   if (!meta.width || meta.width <= PUBLISH_MAX_WIDTH) return buffer;
   return sharp(buffer).resize({ width: PUBLISH_MAX_WIDTH }).png().toBuffer();
 }
-async function storeCroppedAsset(supabase, taskId, assetId, buffer) {
-  const key = `${taskId}/assets/${assetId}.png`;
-  await putObject(key, buffer, 'image/png');
-  await supabase.from('manual_assets').update({ storage_path: key, updated_at: new Date().toISOString() }).eq('id', assetId);
-  return key;
-}
-
 // ── 데이터 조회(supabase 주입) ──
 async function selectInChunks(ids, fetch, chunkSize = 100) {
   if (!ids.length) return [];
@@ -201,9 +178,10 @@ export async function fetchPublishData(supabase, taskId, conversionJobId) {
     selectInChunks(slideIds, (chunk) =>
       supabase
         .from('manual_assets')
-        .select('id,slide_id,label,crop_box,storage_path,review_status')
+        .select('id,slide_id,label,storage_path,review_status')
         .eq('job_id', conversionJobId)
         .in('slide_id', chunk)
+        .eq('kind', 'group_bake')
         .neq('review_status', 'excluded')
         .order('created_at')),
   ]);
@@ -281,24 +259,15 @@ export async function publishToNotion({ supabase, token, taskId, publishRunId, c
       for (const fn of (data.functionsByCategory.get(category.id) ?? []).filter((f) => (data.slidesByFunction.get(f.id) ?? []).length > 0)) {
         for (const slide of data.slidesByFunction.get(fn.id) ?? []) {
           for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
-            if (asset.storage_path || (asset.crop_box && slide.render_path)) imageJobs.push({ asset, slide });
+            if (asset.storage_path) imageJobs.push(asset);
           }
         }
       }
     }
     const uploadedByAssetId = new Map();
-    const renderCache = new Map();
     let uploadedCount = 0;
-    await runPool(imageJobs, 6, async ({ asset, slide }) => {
-      let buffer = null;
-      if (asset.storage_path) buffer = await getObject(asset.storage_path);
-      else if (asset.crop_box && slide.render_path) {
-        let rb = renderCache.get(slide.render_path);
-        if (!rb) { rb = await getObject(slide.render_path); renderCache.set(slide.render_path, rb); }
-        buffer = await cropRender(rb, asset.crop_box);
-        await storeCroppedAsset(supabase, taskId, asset.id, buffer);
-      }
-      if (!buffer) return;
+    await runPool(imageJobs, 6, async (asset) => {
+      let buffer = await getObject(asset.storage_path);
       buffer = await resizeForPublish(buffer);
       const fileUploadId = await uploadImageToNotion(token, buffer, `${asset.id}.png`);
       uploadedByAssetId.set(asset.id, fileUploadId);

@@ -30,7 +30,7 @@
 - Next.js 16 App Router(force-dynamic), React 19, TS strict, Supabase(Postgres + Storage), Notion REST, Beaverworks DS(`@sungbinhwang-beaverworksinc/design-system` ^0.2.3), sharp, zod.
 - **서버 전용** Supabase service client(`server-only`) — anon 브라우저 클라이언트 미사용. 페이지=`'use client'` + DS import. 날짜는 문자열(렌더 시 `new Date()` 금지 — hydration). 네비는 실제 페이지 연결(스텁/죽은 링크 금지).
 - DS 유효 tone = `neutral|primary|success|warning|danger|info` (**'error' 없음**). 하드코딩 색상 금지.
-- 변환 worker: Microsoft Graph PowerPoint→PDF + pdftoppm + sharp. 다른 렌더러 fallback 없음. sharp 메모리(`sharp.cache(false)`·`concurrency(1)`) — Railway OOM 방지.
+- 변환 worker: Microsoft Graph PowerPoint→PDF + pdftoppm + sharp. 다른 렌더러 fallback과 레거시 `capture` 모드 없음. 모든 `content` 슬라이드를 고정 박스로 캡처한다. sharp 메모리(`sharp.cache(false)`·`concurrency(1)`) — Railway OOM 방지.
 
 ## v2 유지보수 스키마 (소유: mm-be)
 `supabase/migrations/002_maintenance_v2.sql` — `manual_anchor_units`(유지보수 단위) / `manual_product_anchors`(매뉴얼 단위↔화면·route·KMS·Figma) / `manual_change_signals`(Asana/Figma/manual 신호) / `manual_impact_candidates`(영향 후보) / `manual_update_drafts`(검수 전 초안). DB층은 UNIQUE/upsert로 멱등. **단, Notion 발행 멱등(`update_draft.notion_page_id` 매핑)은 미구현 — 다음 증분 1순위.**

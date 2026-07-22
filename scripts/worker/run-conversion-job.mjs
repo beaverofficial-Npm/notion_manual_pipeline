@@ -12,9 +12,8 @@ import {
   extractSection,
   normalizeName,
   parseSlideShapes,
-  screenshotCandidates,
 } from './ppt-parse.mjs';
-import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups, shouldUseFixedCapture } from './group-bake.mjs';
+import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups } from './group-bake.mjs';
 import { renderPdfWithGraph } from './graph-renderer.mjs';
 import { isHiddenSlideXml, mapRenderedPagesToSlides } from './slide-visibility.mjs';
 import { workerLabel } from './worker-identity.mjs';
@@ -372,15 +371,6 @@ export async function runOnce(jobIdArg) {
       .single();
     if (sourceError || !sourceFile) throw new Error(sourceError?.message ?? 'Source file not found.');
 
-    // task의 conversion_mode 조회 (기본값: 'capture')
-    const { data: task, error: taskError } = await supabase
-      .from('manual_tasks')
-      .select('conversion_mode')
-      .eq('id', sourceFile.task_id)
-      .single();
-    if (taskError || !task) throw new Error(taskError?.message ?? 'Task not found.');
-    const conversionMode = task.conversion_mode ?? 'capture';
-
     const { filePath: pptPath, checksum: sourceChecksum } = await downloadSource(sourceFile, tmpDir);
     const { error: checksumError } = await supabase
       .from('manual_source_files')
@@ -410,8 +400,8 @@ export async function runOnce(jobIdArg) {
     const renderResult = await renderSlides(pptPath, tmpDir, { slideNumbers, hiddenSlideNumbers });
     const renderedSlides = renderResult.slidesByNumber;
 
-    // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록/이미지 후보
-    // conversionMode에 따라 이미지 처리 방식 결정 (capture: 기존 동작 / group_bake: 이미지박스→그룹→영역 베이킹)
+    // 1차 파싱: 슬라이드별 역할/섹션/기능명/블록과 고정 캡처 이미지를 만든다.
+    // 이미지 후보 탐지나 변환 모드 분기 없이 모든 content 슬라이드에 같은 실측 박스를 적용한다.
     const parsedSlides = [];
     for (const { slideNumber, slideXml, hidden } of slideDocuments) {
       if (hidden) continue;
@@ -427,23 +417,14 @@ export async function runOnce(jobIdArg) {
 
       let screenshots = [];
       if (role === 'content') {
-        if (shouldUseFixedCapture(conversionMode, role)) {
-          // 고정 캡처 모드는 OOXML의 이미지/그룹 구성으로 캡처 여부를 다시 추론하지 않는다.
-          // 사용자가 이미지를 교체하거나 그룹을 다시 만들면 pic 탐지가 달라질 수 있으므로,
-          // 모든 content slide를 동일한 실측 박스로 캡처한다.
-          const localRender = renderedSlides.get(slideNumber) ?? null;
-          if (localRender) {
-            const croppedPaths = await cropGroups(localRender, [boxCropRect(FIXED_CAPTURE_BOX)], tmpDir, slideNumber);
-            screenshots = croppedPaths.map((croppedPath) => ({
-              label: '이미지 박스',
-              bbox: null, // 구워진 이미지라 crop_box 불필요
-              confidence: 1,
-              imagePath: croppedPath, // 임시 경로 (insertSlide에서 업로드)
-            }));
-          }
-        } else {
-          // capture 모드 (기본): 기존 동작 유지
-          screenshots = screenshotCandidates(parsed);
+        const localRender = renderedSlides.get(slideNumber) ?? null;
+        if (localRender) {
+          const croppedPaths = await cropGroups(localRender, [boxCropRect(FIXED_CAPTURE_BOX)], tmpDir, slideNumber);
+          screenshots = croppedPaths.map((croppedPath) => ({
+            label: '이미지 박스',
+            confidence: 1,
+            imagePath: croppedPath,
+          }));
         }
       }
 
@@ -545,29 +526,23 @@ export async function runOnce(jobIdArg) {
           }
 
           if (slide.screenshots.length) {
-            // group_bake 모드: imagePath를 가진 이미지는 버킷에 업로드하고 storage_path 설정
-            // capture 모드: 기존 동작 (crop_box 저장, storage_path=null)
             const assetRows = [];
             for (const shot of slide.screenshots.slice(0, 4)) {
-              // 에셋별로 판정: imagePath 있으면 group_bake(구운 이미지 업로드), 없으면 capture(crop_box)
-              const isBaked = Boolean(shot.imagePath);
-              let storagePath = null;
-              if (isBaked) {
-                const assetFileName = path.basename(shot.imagePath);
-                storagePath = `${job.task_id}/runs/${job.run_number}/assets/${assetFileName}`;
-                await uploadFile(ASSETS_BUCKET, storagePath, shot.imagePath, 'image/png');
-              }
+              if (!shot.imagePath) throw new Error(`Fixed capture output missing: slide ${slide.slide_number}`);
+              const assetFileName = path.basename(shot.imagePath);
+              const storagePath = `${job.task_id}/runs/${job.run_number}/assets/${assetFileName}`;
+              await uploadFile(ASSETS_BUCKET, storagePath, shot.imagePath, 'image/png');
               assetRows.push({
                 slide_id: slideId,
                 job_id: job.id,
-                kind: isBaked ? 'group_bake' : 'screenshot',
+                kind: 'group_bake',
                 label: shot.label,
                 storage_path: storagePath,
-                crop_box: isBaked ? null : shot.bbox,
+                crop_box: null,
                 source_element_ids: [],
                 included_annotation_ids: [],
                 review_status: 'pending',
-                review_reason: isBaked ? 'group_bake_auto' : 'extracted_candidate',
+                review_reason: 'group_bake_auto',
                 confidence: shot.confidence,
               });
             }
@@ -600,8 +575,8 @@ export async function runOnce(jobIdArg) {
         renderedSlideSha256: renderedSlideChecksums,
         renderedSlideNumbers: renderResult.renderedSlideNumbers,
         hiddenSlideNumbers,
-        captureBox: conversionMode === 'group_bake' ? FIXED_CAPTURE_BOX : null,
-        cropPadding: conversionMode === 'group_bake' ? 0 : null,
+        captureBox: FIXED_CAPTURE_BOX,
+        cropPadding: 0,
       },
       slideSize,
       categories: categories.map((c) => ({

@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const supabase = createServiceSupabaseClient();
 
   try {
-    const body = (await request.json().catch(() => ({}))) as { fileName?: unknown; fileSize?: unknown; mode?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { fileName?: unknown; fileSize?: unknown };
 
     const fileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
     if (!fileName || !isPptName(fileName)) {
@@ -46,12 +46,6 @@ export async function POST(request: Request) {
     }
 
     const fileSize = typeof body.fileSize === 'number' && Number.isFinite(body.fileSize) && body.fileSize > 0 ? body.fileSize : null;
-    // mode: 미지정 시 'group_bake'(자동 추출 단일). 레거시 'capture' 값도 호환용으로만 허용.
-    const mode = typeof body.mode === 'string' && body.mode.trim() ? body.mode.trim() : 'group_bake';
-    if (!['capture', 'group_bake'].includes(mode)) {
-      return NextResponse.json({ message: 'mode은 capture 또는 group_bake이어야 합니다.' }, { status: 400 });
-    }
-
     const title = fileNameToTitle(fileName);
 
     const { data: task, error: taskError } = await supabase
@@ -61,7 +55,8 @@ export async function POST(request: Request) {
         status: 'ready',
         target_notion_page_id: null,
         publish_mode: 'create_child',
-        conversion_mode: mode,
+        // 변환 방식은 고정 영역 캡처 단일 경로다. 요청값으로 구방식을 선택할 수 없게 서버에서 고정한다.
+        conversion_mode: 'group_bake',
       })
       .select('id')
       .single();

@@ -13,7 +13,7 @@
 | 원본 보존 | 업로드된 PPT는 항상 원본으로 보존한다. |
 | 변환 결과 버전화 | 재실행 결과는 이전 결과를 즉시 덮어쓰지 않고 새 run/version으로 저장한다. |
 | 편집 가능한 텍스트 우선 | 설명 문구는 이미지가 아니라 Notion 텍스트 블록 후보로 만든다. |
-| 의미 단위 이미지 | 앱 화면, QR, 표 이미지는 슬라이드 전체가 아니라 의미 있는 영역으로 분리한다. |
+| 고정 캡처 | 모든 `content` 슬라이드에서 템플릿의 실측 이미지 박스를 그대로 캡처한다. |
 | 애매하면 검수 | 자동 판단이 불확실하면 발행 차단 또는 검수 필요 상태로 둔다. |
 | 발행 전 preview | Notion에 쓰기 전 생성될 블록 구조를 사용자가 확인한다. |
 
@@ -24,8 +24,8 @@
 3. 변환 실행
 4. 슬라이드 렌더링
 5. PPT 객체 파싱
-6. 요소 분류
-7. 이미지/QR/표 후보 생성
+6. 슬라이드 역할·텍스트 구조 분류
+7. 고정 이미지 박스 캡처
 8. Notion 블록 후보 생성
 9. 사용자 검수
 10. 발행 payload 생성
@@ -82,14 +82,14 @@
 목적:
 
 - 사용자가 원본 슬라이드를 검수할 수 있도록 slide preview를 만든다.
-- crop 후보를 만들 기준 좌표계를 확보한다.
+- 고정 이미지 박스를 자를 기준 좌표계를 확보한다.
 
 권장 방식:
 
 - Microsoft Graph의 PowerPoint renderer로 PPTX를 PDF로 변환
 - PDF 페이지를 PNG로 렌더링
 - 숨김 슬라이드를 제외한 PDF page를 원본 slide number에 명시적으로 매핑
-- 이미지 본문 페이지는 모든 덱 공통 실측 고정 박스를 padding 0으로 캡처
+- 모든 `content` 페이지는 공통 실측 고정 박스를 padding 0으로 캡처
 
 출력:
 
@@ -102,7 +102,7 @@
 
 목적:
 
-- 이미지 crop을 눈대중으로만 만들지 않고 PPT 내부 객체 정보를 후보 생성에 사용한다.
+- 슬라이드 역할과 오른쪽 설명 텍스트 구조를 판별한다. 이미지 캡처 여부와 좌표는 객체 탐지로 결정하지 않는다.
 
 파싱 대상:
 
@@ -133,52 +133,42 @@
 - relationship id
 - raw metadata
 
-### 4.5 요소 분류
+### 4.5 역할·텍스트 분류
 
 분류값:
 
 | kind | 의미 | 기본 처리 |
 | --- | --- | --- |
 | `text` | 제목, 본문, 단계 설명 | Notion 텍스트 블록 |
-| `screenshot` | 앱 화면/관리자 화면 | crop image |
-| `qr` | QR 코드 | 별도 crop image |
 | `table` | 표 | Notion table 우선 |
-| `annotation` | 번호, 강조 박스, 화살표, 선 | 포함/제외 검수 |
-| `decorative` | 배경, 장식, 불필요 아이콘 | 제외 |
 | `unknown` | 판단 불가 | 검수 필요 |
 
 분류 기준:
 
 - 텍스트가 포함된 객체는 기본 `text`이다.
-- 사각형 내부에 화면 UI가 포함된 큰 이미지는 `screenshot` 후보이다.
-- QR 패턴으로 감지되거나 주변 텍스트가 `QR`, `Android`, `iOS`와 연결되면 `qr` 후보이다.
 - PPT table 객체는 `table` 후보이다.
-- arrow/connector/line은 기본 `annotation`이며, crop에는 자동 포함하지 않는다.
-- 이미지와 겹치는 번호/강조 박스는 `annotation`이지만 screenshot과 함께 포함 가능 후보로 둔다.
+- 이미지, 화살표, 번호, 강조 박스는 개별 분리하지 않고 PowerPoint 렌더에 보이는 상태로 고정 캡처에 포함한다.
 
-### 4.6 이미지 후보 생성
+### 4.6 고정 이미지 캡처
 
 목적:
 
-- 사용자가 Notion에 넣을 이미지를 직접 다시 자르지 않도록 의미 단위 crop 후보를 만든다.
+- 템플릿의 연회색 이미지 박스 영역을 PowerPoint 렌더에서 그대로 보존한다.
 
-후보 생성 규칙:
+캡처 규칙:
 
-- screenshot 후보는 화면 영역만 포함한다.
-- 본문 설명 텍스트는 crop에서 제외한다.
-- QR은 플랫폼/목적별로 따로 crop한다.
-- 화살표는 기본 제외한다.
-- 화면 이해에 꼭 필요한 번호/강조 박스는 crop 포함 후보로 둔다.
-- 표는 table 변환 실패 시에만 crop fallback을 만든다.
+- 역할이 `content`이면 OOXML picture/group 후보 수와 무관하게 캡처한다.
+- 실측 비율 `x=.036458, y=.171296, w=.606771, h=.694444`를 사용한다.
+- padding은 0이며 화면·화살표·번호·강조 박스를 렌더 그대로 포함한다.
+- 변환 시 완성된 PNG를 현재 task/job/run 경로에 저장한다.
+- 검수·미리보기·발행 시 추가 crop을 수행하지 않는다.
 
 저장:
 
-- 원본 render 기준 crop box
-- source element ids
-- included annotation ids
-- confidence
-- review required reason
-- crop image path
+- `kind=group_bake`
+- 현재 conversion job id
+- 현재 run의 storage path
+- 고정 capture box와 render provenance가 포함된 manifest
 
 ### 4.7 텍스트/블록 후보 생성
 
@@ -210,22 +200,19 @@
 
 - task
 - slide
-- asset candidate
+- 고정 캡처 asset
 - Notion block candidate
 
-사용자가 할 수 있어야 하는 작업:
+사용자가 확인할 수 있어야 하는 항목:
 
-- 후보 분류 변경
-- crop box 수정
-- QR label 수정
-- annotation 포함/제외 선택
-- table 변환 결과 수정
+- 이미지 박스 경계와 비율 무결성
+- 화살표·번호·강조 박스·교체 이미지 반영 여부
 - Notion block 순서 확인
 - 발행 제외 처리
 
 검수 완료 조건:
 
-- 모든 `review_required` 후보가 승인/수정/제외 중 하나로 결정됨
+- 모든 대상 슬라이드에 현재 job의 고정 캡처 asset이 존재함
 - Notion block preview에 누락된 핵심 콘텐츠가 없음
 - 품질 게이트를 통과함
 

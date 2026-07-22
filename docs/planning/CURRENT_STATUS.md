@@ -1,6 +1,6 @@
 # Current Status
 
-작성일: 2026-07-21
+작성일: 2026-07-22
 
 이 문서는 Notion Manual Pipeline의 현재 구현, 배포, 검증 상태를 한 페이지에서 확인하기 위한 현행 문서이다. 상세 기획은 `PRD.md`, `PIPELINE_SPEC.md`, `TECHNICAL_DESIGN.md`, `E2E_PIPELINE_PLAN.md`를 기준으로 한다.
 
@@ -34,7 +34,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
 - Beaverworks Design System 기반 UI
 - 주요 화면
   - 메인: PPT 업로드, 작업 목록, 변환 시작/중단/삭제, 발행 상태 확인
-  - 검수 화면: 카테고리/기능 트리, 슬라이드 렌더, crop 후보 수정, Notion 발행 미리보기, Notion 발행
+  - 검수 화면: 카테고리/기능 트리, 고정 캡처 결과, Notion 발행 미리보기, Notion 발행
 
 ### Worker
 
@@ -50,7 +50,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
 ### Supabase
 
 - Postgres: task, source file, conversion job, slide, category, function, asset, Notion block, publish run, mapping 저장
-- Storage:
+- R2 object storage:
   - `manual-source`: 원본 PPT
   - `manual-renders`: slide PNG render
   - `manual-assets`: crop 결과 이미지
@@ -67,7 +67,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
 ### 작업 생성/관리
 
 - PPT/PPTX 업로드
-- Supabase Storage 원본 저장
+- R2 원본 저장
 - task/source file row 생성
 - 작업 목록 실제 DB 연동
 - 작업 삭제 API 및 Storage 정리
@@ -98,27 +98,20 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
   - 짧은 오타 수준 fuzzy match
 - 슬라이드가 0개인 빈 기능/빈 카테고리는 변환 결과와 검수 API에서 제외
 
-### 본문/이미지 후보
+### 본문/고정 캡처
 
 - 단계 번호를 numbered list 후보로 변환
 - 하위 설명을 bullet/paragraph 후보로 변환
 - 참고/주의 문구를 callout 후보로 변환
 - PPT table 객체를 table 후보로 변환
-- 이미지가 있는 본문 페이지는 모든 덱 공통 고정 박스를 padding 0으로 캡처
-- 이미지가 없는 FAQ/표 페이지는 잘못된 crop asset을 만들지 않음
+- 모든 `content` 페이지를 OOXML 이미지/그룹 탐지와 무관하게 공통 고정 박스로 padding 0 캡처
+- 캡처 결과는 변환 시점에 `group_bake` asset으로 저장하며 후속 단계에서 다시 자르지 않음
 
 ### 검수 UI
 
 - 카테고리/기능 트리 표시
 - 기능 단위 슬라이드 묶음 표시
-- slide render 표시
-- crop 후보 선택/수정
-- crop 후보 추가/삭제
-- crop label/kind 수정
-- 카테고리/기능명 수정
-- 기능 단위 발행 제외/포함
-- 제외 페이지 수 표시
-- 하단/목록 기반 페이지 이동
+- 고정 캡처 asset과 추출 텍스트 표시
 - Notion 발행 미리보기 모달
 
 ### Notion 발행
@@ -126,7 +119,7 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
 - 발행 미리보기 payload 생성
 - Notion page 생성
 - heading/paragraph/list/callout/table/image block 생성
-- render + crop_box 기반 이미지 업로드
+- 현재 conversion job의 `group_bake` storage asset 직접 업로드
 - 발행 진행률 streaming 표시
 - 발행 중 취소
 - publish run 및 Notion mapping 저장
@@ -138,8 +131,17 @@ Railway는 `railway.json`의 Dockerfile 빌더 설정을 사용한다. PPT/PPTX�
 - 앱 런타임에는 사전 생성된 마스터 문서 JSON을 포함하지 않음
 - v1 운영 자산 경로는 `PPT 업로드 -> Supabase 저장 -> worker 변환 -> 검수/수정 -> Notion 발행`
 - `npm run verify:requirements`로 seed/manual-builder 경로가 다시 들어오지 않는지 검증
+- `npm run verify:legacy-retirement`로 레거시 API/worker/UI/publish 분기가 다시 들어오지 않는지 검증
 
 ## 5. 최근 해결한 주요 문제
+
+### 5.0 레거시 capture 경로 완전 은퇴
+
+- 업로드 API는 `conversion_mode='group_bake'`만 기록한다.
+- worker는 DB 모드나 OOXML 이미지 후보에 따라 분기하지 않고 모든 `content` 페이지를 고정 캡처한다.
+- 검수 화면과 발행 미리보기/실행은 `group_bake + storage_path` asset만 읽는다.
+- 구형 crop 편집 화면과 영역 생성·수정 API를 제거했다.
+- DB migration `008_retire_legacy_capture.sql`이 기존 값을 정규화하고 단일 값 제약을 적용한다.
 
 ### 5.1 대형 POS PPT 변환 실패
 

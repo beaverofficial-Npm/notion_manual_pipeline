@@ -291,7 +291,7 @@ async function uploadAndRun(item, settings) {
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fileName, fileSize: fileBytes.length, mode: 'group_bake' }),
+      body: JSON.stringify({ fileName, fileSize: fileBytes.length }),
     },
     `${item.id} task 생성`,
     settings.requestTimeoutMs,

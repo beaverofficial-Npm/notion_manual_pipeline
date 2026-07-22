@@ -1,160 +1,67 @@
 # Quality Gates
 
 > 최신 이미지 업데이트·고정 캡처 마스터 검수: [2026-07-22 QA 리포트](../qa/image-update-stability-20260722/index.html)
->
-> 현재 `group_bake` 모드는 화살표·번호·강조 박스를 포함한 PowerPoint 렌더 화면을 고정 좌표로 캡처한다. 아래의 개별 요소 분리 규칙은 레거시 `capture` 모드에만 적용한다.
 
-## 1. 목적
+## 1. 현행 계약
 
-품질 게이트는 PPT를 Notion으로 발행하기 전에 사람이 수동으로 잡아냈던 실수를 시스템에서 차단하기 위한 기준이다.
+- PPT/PPTX 렌더러는 Microsoft Graph PowerPoint 단일 경로다. 다른 렌더러 fallback은 없다.
+- 역할이 `content`인 모든 슬라이드는 OOXML 이미지/그룹 탐지와 무관하게 실측 고정 박스를 padding 0으로 캡처한다.
+- 캡처 이미지는 변환 시점에 `group_bake` asset으로 저장한다. 검수·미리보기·발행 단계에서 `crop_box`로 다시 자르지 않는다.
+- 업로드 API, worker, 검수 화면, 발행은 모두 같은 단일 경로를 사용한다. 레거시 `capture` 모드는 지원하지 않는다.
+- 매 실행은 고유한 task/job/source/run으로 식별하고, 발행은 성공한 conversion job id에 고정한다.
 
-특히 아래 문제를 막는다.
+## 2. 변환 차단 조건
 
-- 설명 텍스트까지 포함한 전체 슬라이드 crop
-- QR 분리 누락
-- 표 누락
-- 화살표/어노테이션 오인식
-- Notion에서 편집 가능한 텍스트가 이미지에 갇히는 문제
-- 기존 Notion 페이지를 실수로 덮어쓰는 문제
+| 조건 | 판정 |
+| --- | --- |
+| 원본 다운로드 SHA-256과 DB source checksum 불일치 | 실패 |
+| Graph PDF 변환 실패 또는 빈 PDF | 실패 |
+| PDF page와 원본 비숨김 slide number 매핑 불일치 | 실패 |
+| 렌더 chunk의 페이지 PNG 누락 | 실패 |
+| `content` 슬라이드의 고정 캡처 파일 생성 실패 | 실패 |
+| asset이 `group_bake`가 아니거나 현재 run prefix 밖의 경로를 참조 | 실패 |
+| manifest의 renderer/capture box/padding 출처 누락 | 실패 |
 
-## 2. 발행 차단 조건
+실패한 run은 성공 결과로 승격하지 않으며, 직전 성공 결과를 발행 대상으로 사용하지 않는다.
 
-아래 조건은 `ready_to_publish`로 전환할 수 없다.
+## 3. 이미지 품질 게이트
 
-| 코드 | 조건 | 조치 |
-| --- | --- | --- |
-| `FULL_SLIDE_CROP_WITH_TEXT` | 이미지 후보가 슬라이드 대부분을 포함하고 텍스트 객체도 포함 | crop 수정 또는 제외 |
-| `UNREVIEWED_REQUIRED_ASSET` | review required asset이 남아 있음 | approve/exclude/수정 필요 |
-| `QR_NOT_SPLIT` | 같은 슬라이드에 Android/iOS QR이 있으나 하나의 이미지로 묶임 | QR별 crop 분리 |
-| `TABLE_MISSING` | 표 객체 또는 표로 보이는 영역이 있으나 block/asset 후보가 없음 | table 후보 생성 또는 fallback |
-| `TEXT_IMAGE_ONLY` | 핵심 설명 문구가 Notion text block 없이 이미지에만 존재 | text block 추가 |
-| `PUBLISH_TARGET_MISSING` | Notion 대상 page/data source가 없음 | 대상 입력 |
-| `DESTRUCTIVE_UPDATE` | 기존 Notion block 삭제/대량 교체가 필요한 발행 | MVP에서는 차단 |
+- 모든 고정 캡처는 동일한 좌표 비율을 사용한다.
+- 출력은 원본 슬라이드 비율을 유지하고 폭·높이를 독립적으로 늘이거나 줄이지 않는다.
+- 캡처 경계에 해당하는 연회색 이미지 박스가 잘리거나 본문 설명 영역이 섞이지 않아야 한다.
+- 화살표, 번호, 강조 박스, 말풍선, 교체된 화면 이미지는 PowerPoint 렌더 결과 그대로 포함되어야 한다.
+- 수정 대상 페이지는 전부 달라지고, 비수정 대상 페이지는 허용 오차 안에서 동일해야 한다.
+- 같은 파일명, 다른 파일명, 같은 바이트, 같은 파일 크기 여부가 결과 재사용 조건이 되어서는 안 된다.
 
-## 3. 경고 조건
+## 4. 재실행·발행 게이트
 
-경고는 발행을 막지 않을 수 있으나 사용자 확인을 요구한다.
+- 같은 task에 `queued` 또는 `running` job이 있으면 중복 실행 요청은 409로 차단한다.
+- 새 성공 run은 DB row와 R2 object가 모두 새 job/run을 참조해야 한다.
+- 실패한 재실행은 직전 성공 run의 DB/R2 결과를 보존해야 한다.
+- 발행 미리보기와 실제 발행은 `kind=group_bake`이면서 `storage_path`가 있는 현재 job asset만 읽는다.
+- Notion 대상 page id가 없거나 성공한 conversion job pin이 없으면 발행을 차단한다.
 
-| 코드 | 조건 | 조치 |
-| --- | --- | --- |
-| `LOW_CONFIDENCE_CROP` | crop confidence가 낮음 | 사용자가 확인 |
-| `ANNOTATION_INCLUDED` | 번호/강조 박스가 이미지에 포함됨 | 포함 여부 확인 |
-| `ARROW_DETECTED` | 화살표/connector가 감지됨 | crop 제외 여부 확인 |
-| `TABLE_FALLBACK_IMAGE` | table block 대신 이미지 fallback 사용 | 후속 table 변환 권장 |
-| `NOTION_PAYLOAD_LARGE` | 발행 block/image 수가 큼 | batch 발행 확인 |
+## 5. 자동 검증
 
-## 4. 수동 파일럿 기준
+필수 명령:
 
-### 다운로드 및 설치
+```bash
+npm run verify:all
+npm run build
+```
 
-Pass:
+`verify:all`에는 다음 회귀 방지가 포함된다.
 
-- 휴대폰 화면 이미지와 QR이 분리되어 있다.
-- Android QR과 iOS QR이 각각 별도 asset이다.
-- 다운로드 설명 텍스트가 Notion text로 존재한다.
+- Graph renderer와 숨김 슬라이드 매핑
+- 고정 캡처 좌표·픽셀 경계
+- 레거시 `capture` API/worker/UI/publish 경로 부재
+- 역할 분류와 작은 번호 어노테이션 오분류 방지
+- 발행 conversion job pin
+- 요구사항·v2 목적·로컬 fixture·TypeScript
 
-Fail:
+## 6. 보안·운영 게이트
 
-- QR 2개가 하나의 이미지로 묶여 있다.
-- QR 주변 안내 문구 전체가 이미지로만 들어간다.
-- 휴대폰 화면과 QR이 구분 없이 한 crop에 들어간다.
-
-### 프랜차이즈 전용 상품
-
-Pass:
-
-- `판매상품 검색`은 화면 영역만 crop한다.
-- 화살표는 이미지에서 제외하거나 검수된 annotation으로만 포함한다.
-- `판매상품 품절` 표가 Notion table 또는 table fallback으로 존재한다.
-
-Fail:
-
-- 본문 텍스트까지 포함한 전체 crop을 사용한다.
-- 품절 관련 표가 누락된다.
-- 표를 이미지로만 넣고 table review warning도 없다.
-
-## 5. 자동 검사 규칙
-
-### 5.1 전체 슬라이드 crop 감지
-
-조건:
-
-- crop area / slide area > 0.65
-- crop 내부에 text element가 2개 이상 포함
-
-결과:
-
-- `FULL_SLIDE_CROP_WITH_TEXT`
-
-예외:
-
-- 슬라이드 자체가 단일 이미지 매뉴얼인 경우 사용자가 명시 approve할 수 있다.
-
-### 5.2 QR 분리 감지
-
-조건:
-
-- 한 슬라이드에서 QR 후보가 2개 이상
-- 하나의 asset crop이 QR 후보 bbox 2개 이상 포함
-
-결과:
-
-- `QR_NOT_SPLIT`
-
-### 5.3 표 누락 감지
-
-조건:
-
-- PPT table object가 존재하지만 Notion table block이 없음
-- grid line이 많은 이미지 영역이 존재하지만 table candidate가 없음
-
-결과:
-
-- `TABLE_MISSING`
-
-### 5.4 화살표 감지
-
-조건:
-
-- line/connector object with arrowhead
-- 긴 선형 shape
-- arrow-like annotation classified object
-
-결과:
-
-- `ARROW_DETECTED`
-
-기본 처리:
-
-- screenshot crop에서는 제외한다.
-- 필요 시 Notion text/caption으로 연결성을 표현한다.
-
-## 6. 검수 완료 계산
-
-task가 `ready_to_publish`가 되려면:
-
-- 모든 slide가 `approved` 또는 `excluded` 상태
-- 발행 차단 gate가 0개
-- Notion target이 유효함
-- publish preview 생성 성공
-
-slide가 `approved`가 되려면:
-
-- 모든 required asset이 결정됨
-- 모든 required block이 결정됨
-- table warning 처리됨
-- crop warning 처리됨
-
-## 7. 테스트 체크리스트
-
-개발자는 발행 전 아래를 확인한다.
-
-- 업로드된 PPT 원본이 Storage에 남아 있는가
-- slide render 수가 실제 slide 수와 같은가
-- 설명 텍스트가 Notion block 후보로 생성됐는가
-- screenshot crop에 본문 설명 영역이 섞이지 않았는가
-- QR이 각각 분리됐는가
-- table 후보가 누락되지 않았는가
-- publish preview와 실제 Notion 결과가 같은 순서인가
-- 실패 시 작업 상태와 오류 메시지가 남는가
-- service role key와 Notion token이 클라이언트 번들에 들어가지 않는가
+- service role key, Notion token, Graph token, R2 key를 클라이언트 번들·로그·문서에 넣지 않는다.
+- 운영 배포 전 active conversion/publish job이 0인지 확인한다.
+- DB 마이그레이션은 기존 운영 row를 먼저 새 단일 값으로 정규화한 뒤 제약을 적용한다.
+- 운영 검증은 실제 사용자 작업을 만들지 않고 HTTP/worker version/로그와 read-only DB 상태로 확인한다.

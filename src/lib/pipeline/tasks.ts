@@ -30,7 +30,7 @@ interface ManualSlideRow {
 interface ManualAssetRow {
   id: string;
   slide_id: string;
-  kind: 'screenshot' | 'qr' | 'table_image' | 'annotation' | 'decorative' | 'unknown';
+  kind: 'group_bake';
   label: string;
   confidence: number | null;
 }
@@ -182,7 +182,7 @@ export async function listManualProjects(): Promise<ManualProject[]> {
 
   // slide_id 를 한 번에 .in() 하면 수백 개일 때 URL 이 8KB 를 넘어 "URI too long" 으로 실패했음 → 청크 조회.
   const assetRows = await selectInChunks<ManualAssetRow>(slideIds, (chunk) =>
-    supabase.from('manual_assets').select('id,slide_id,kind,label,confidence').in('slide_id', chunk),
+    supabase.from('manual_assets').select('id,slide_id,kind,label,confidence').in('slide_id', chunk).eq('kind', 'group_bake'),
   );
 
   // 발행된 노션 페이지(task 매핑). 가장 최근 발행 페이지를 task 별로 1건 보관한다.

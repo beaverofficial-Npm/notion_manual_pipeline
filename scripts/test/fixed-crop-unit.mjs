@@ -3,11 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
-import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups, shouldUseFixedCapture } from '../worker/group-bake.mjs';
-
-assert.equal(shouldUseFixedCapture('group_bake', 'content'), true);
-assert.equal(shouldUseFixedCapture('group_bake', 'section'), false);
-assert.equal(shouldUseFixedCapture('capture', 'content'), false);
+import { FIXED_CAPTURE_BOX, boxCropRect, cropGroups } from '../worker/group-bake.mjs';
 
 const width = 1000;
 const height = 600;

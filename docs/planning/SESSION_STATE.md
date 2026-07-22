@@ -1,12 +1,19 @@
 # 세션 상태 (최신본 — 모든 세션은 이 파일부터 읽는다)
 
 > **갱신 규칙**: 상태가 바뀌는 작업을 한 세션은 이 파일을 그 자리에서 갱신한다. 날짜별 사본 대신 이 파일 하나가 정본.
-> 마지막 갱신: **2026-07-21** (이전 스냅샷: SESSION_STATE_2026-07-15.md)
+> 마지막 갱신: **2026-07-22** (이전 스냅샷: SESSION_STATE_2026-07-15.md)
+
+## 레거시 capture 경로 은퇴 (2026-07-22)
+
+- 업로드 API·변환 worker·검수 화면·발행 미리보기·발행 worker를 고정 영역 캡처 단일 경로로 통합했다.
+- 구형 crop 편집 화면과 영역 생성/수정 API를 삭제했고, 발행은 `kind=group_bake`이면서 현재 conversion job의 `storage_path`가 있는 asset만 읽는다.
+- `008_retire_legacy_capture.sql`은 기존 `conversion_mode` 값을 `group_bake`로 정규화하고 DB 기본값/제약도 단일 값으로 고정한다.
+- `npm run verify:legacy-retirement`를 전체 게이트에 추가해 레거시 분기 재유입을 차단한다.
 
 ## Microsoft Graph 렌더러 마이그레이션 (2026-07-21)
 
 - `staging`과 `main`에서 PPT/PPTX→PDF 런타임을 Microsoft Graph PowerPoint renderer 단일 경로로 전환했다. 다른 renderer fallback은 없다. 런타임 마이그레이션 커밋은 `859ba42`다.
-- 모든 이미지 본문 페이지는 실측 고정 박스 `x=.036458, y=.171296, w=.606771, h=.694444`, padding 0으로 캡처한다. 이미지 없는 FAQ/표 페이지는 asset을 만들지 않는다.
+- 모든 `content` 페이지는 OOXML 이미지 탐지와 무관하게 실측 고정 박스 `x=.036458, y=.171296, w=.606771, h=.694444`, padding 0으로 캡처한다.
 - 제공된 5개 덱 × 6개 변형(동일/다른 이름, 동일/수정 bytes, 동일 크기 수정) 로컬 E2E 결과: **30/30 case, 254/254 check, 실패 0**.
 - 로컬 검수 보고서: `docs/qa/graph-migration-20260721/local/index.html`.
 - 전체 게이트, Next production build, LibreOffice 없는 Docker image build가 통과했다.

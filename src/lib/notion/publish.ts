@@ -4,7 +4,6 @@ import 'server-only';
 import { createServiceSupabaseClient } from '@/lib/supabase/server';
 import { selectInChunks } from '@/lib/supabase/chunked';
 import { presignGetUrls } from '@/lib/storage/source-storage';
-import { type PercentBox } from '@/lib/notion/assets';
 
 interface ManualTaskRow {
   id: string;
@@ -47,7 +46,6 @@ interface AssetRow {
   id: string;
   slide_id: string;
   label: string;
-  crop_box: PercentBox | null;
   storage_path: string | null;
   review_status: string;
 }
@@ -123,8 +121,9 @@ async function fetchPublishData(taskId: string): Promise<FetchResult> {
   const assetRows = await selectInChunks<AssetRow>(slideIds, (chunk) =>
     supabase
       .from('manual_assets')
-      .select('id,slide_id,label,crop_box,storage_path,review_status')
+      .select('id,slide_id,label,storage_path,review_status')
       .in('slide_id', chunk)
+      .eq('kind', 'group_bake')
       .neq('review_status', 'excluded')
       .order('created_at'),
   );
@@ -170,26 +169,21 @@ async function fetchPublishData(taskId: string): Promise<FetchResult> {
   };
 }
 
-// 발행 미리보기: 페이지를 만들지 않고, 실제로 들어갈 블록 위계와 이미지(렌더 + crop_box)를
+// 발행 미리보기: 페이지를 만들지 않고, 실제로 들어갈 블록 위계와 고정 캡처 이미지를
 // 기능 단위로 그대로 돌려준다. 발행과 동일한 읽기 순서(슬라이드별 블록 → 이미지)를 따른다.
 export async function buildPublishPreview(taskId: string) {
   const supabase = createServiceSupabaseClient();
   const data = await fetchPublishData(taskId);
 
-  // 이미지 미리보기용 signed URL — 두 종류를 배치 서명한다(순차 서명은 큰 덱에서 타임아웃 병력).
-  //  - capture(레거시): 렌더 PNG + crop_box → manual-renders
-  //  - group_bake(현행): 이미 구워진 에셋 PNG(storage_path) → manual-assets
-  const renderPaths = new Set<string>();
+  // 고정 캡처 결과(storage_path)만 배치 서명한다.
   const assetPaths = new Set<string>();
   for (const slides of data.slidesByFunction.values()) {
     for (const slide of slides) {
       for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
         if (asset.storage_path) assetPaths.add(asset.storage_path);
-        else if (asset.crop_box && slide.render_path) renderPaths.add(slide.render_path);
       }
     }
   }
-  const signedUrlByPath = await presignGetUrls([...renderPaths]);
   const signedUrlByAssetPath = await presignGetUrls([...assetPaths]);
 
   const categories = data.categories
@@ -198,7 +192,7 @@ export async function buildPublishPreview(taskId: string) {
         .map((fn) => {
           const slides = data.slidesByFunction.get(fn.id) ?? [];
           const blocks: Array<{ kind: string; text: string; number?: number | null; marker?: string; prefix?: string | null; children: BlockChild[]; rows?: string[][] }> = [];
-          const images: Array<{ renderUrl: string; cropBox: PercentBox; label: string }> = [];
+          const images: Array<{ renderUrl: string; cropBox: { left: number; top: number; width: number; height: number }; label: string }> = [];
 
           for (const slide of slides) {
             for (const block of data.blocksBySlide.get(slide.id) ?? []) {
@@ -214,13 +208,8 @@ export async function buildPublishPreview(taskId: string) {
             }
             for (const asset of data.assetsBySlide.get(slide.id) ?? []) {
               if (asset.storage_path) {
-                // group_bake: 구워진 이미지 그대로(발행에 들어가는 바로 그 파일)
                 const assetUrl = signedUrlByAssetPath.get(asset.storage_path);
                 if (assetUrl) images.push({ renderUrl: assetUrl, cropBox: { left: 0, top: 0, width: 100, height: 100 }, label: asset.label });
-              } else if (asset.crop_box && slide.render_path) {
-                // capture(레거시): 렌더 + crop_box
-                const renderUrl = signedUrlByPath.get(slide.render_path);
-                if (renderUrl) images.push({ renderUrl, cropBox: asset.crop_box, label: asset.label });
               }
             }
           }

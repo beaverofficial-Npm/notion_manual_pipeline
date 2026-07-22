@@ -21,11 +21,6 @@ export const FIXED_CAPTURE_BOX = Object.freeze({
   hFrac: 0.694444,
 });
 
-/** 고정 캡처 여부는 원본 OOXML의 이미지/그룹 탐지 결과와 무관하게 결정한다. */
-export function shouldUseFixedCapture(conversionMode, role) {
-  return conversionMode === 'group_bake' && role === 'content';
-}
-
 /** 좌표를 이미지 범위 안으로만 제한한다. padding·확장·본문 경계 보정은 없다. */
 export function boxCropRect(box) {
   const xFrac = Math.max(0, Math.min(1, box.xFrac));

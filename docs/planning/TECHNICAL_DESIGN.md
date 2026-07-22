@@ -210,7 +210,7 @@ PPT 원본 객체를 보존한다.
 - `kind`
 - `label`
 - `storage_path`
-- `crop_box`
+- `crop_box` (DB 호환용 nullable 컬럼, 현행 고정 캡처 경로에서는 항상 null)
 - `source_element_ids`
 - `included_annotation_ids`
 - `review_status`
@@ -284,11 +284,10 @@ Notion 생성 결과를 추적한다.
 
 | Method | Path | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/tasks/[taskId]/slides` | 슬라이드 목록 |
-| `GET` | `/api/slides/[slideId]` | 슬라이드 상세 |
-| `PATCH` | `/api/assets/[assetId]` | crop/classification/review 수정 |
-| `PATCH` | `/api/notion-blocks/[blockId]` | block 후보 수정 |
-| `POST` | `/api/tasks/[taskId]/review/complete` | 검수 완료 처리 |
+| `GET` | `/api/tasks/[taskId]/tree` | 카테고리→기능→슬라이드와 고정 캡처 asset 조회 |
+| `PATCH` | `/api/slides/[slideId]` | 슬라이드 제목/검수 상태 수정 |
+| `PATCH` | `/api/categories/[categoryId]` | 카테고리 제목 수정 |
+| `PATCH` | `/api/functions/[functionId]` | 기능 제목/검수 상태 수정 |
 
 ### 6.3 Publish
 

@@ -47,15 +47,15 @@ export async function GET(_request: Request, context: RouteContext) {
     slide_id: string;
     kind: string;
     label: string;
-    crop_box: unknown;
     storage_path: string | null;
     review_status: string;
     confidence: number | null;
   }>(slideIds, (chunk) =>
     supabase
       .from('manual_assets')
-      .select('id,slide_id,kind,label,crop_box,storage_path,review_status,confidence')
+      .select('id,slide_id,kind,label,storage_path,review_status,confidence')
       .in('slide_id', chunk)
+      .eq('kind', 'group_bake')
       .order('created_at'),
   );
 
@@ -71,8 +71,7 @@ export async function GET(_request: Request, context: RouteContext) {
   const assetsBySlide = new Map<string, Array<typeof assetRows[number] & { signed_url?: string | null }>>();
   for (const asset of assetRows) {
     const current = assetsBySlide.get(asset.slide_id) ?? [];
-    // group_bake 에셋이고 storage_path가 있으면 signed_url 추가
-    const assetWithUrl = asset.storage_path && asset.kind === 'group_bake'
+    const assetWithUrl = asset.storage_path
       ? { ...asset, signed_url: signedUrlByAssetStoragePath.get(asset.storage_path) ?? null }
       : asset;
     current.push(assetWithUrl);
