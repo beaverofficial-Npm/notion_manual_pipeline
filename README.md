@@ -1,5 +1,27 @@
 # Notion Manual Pipeline
 
+## 개요
+
+매장 운영 매뉴얼을 PPT로 만들어 두고 사람이 다시 Notion에 옮겨 적던 작업을 자동화한 도구입니다.
+
+PPT 파일을 웹에 업로드하면 슬라이드를 이미지로 변환하고, 표지·목차·본문을 구분해 카테고리와 기능 단위로 정리합니다. 결과를 웹에서 확인하고 수정한 뒤 Notion 페이지로 발행합니다.
+
+현재 운영 중이며 Railway에 배포되어 있습니다. 설치와 운영 방법은 `HANDOFF.md`에 정리되어 있습니다.
+
+## API 키 재발급 안내 (인수인계)
+
+이 프로젝트는 아래 외부 서비스의 API 키가 있어야 동작한다. 기존 키는 이전 담당자의 개인 계정으로 발급된 것이므로 **회사 계정으로 새로 발급하여 교체**해야 한다. 교체하지 않으면 기존 키가 정지되는 시점에 해당 기능이 중단된다.
+
+| 서비스 | 환경변수 | 발급처 |
+|---|---|---|
+| Supabase | `NEXT_PUBLIC_SUPABASE_URL` · `NEXT_PUBLIC_SUPABASE_ANON_KEY` · `SUPABASE_SERVICE_ROLE_KEY` | supabase.com → 프로젝트 Settings → API |
+| Notion | `NOTION_TOKEN` · `NOTION_MANUAL_DATABASE_ID` · `NOTION_MANUAL_DATA_SOURCE_ID` | notion.so/my-integrations (내부 통합 생성 후 대상 페이지에 연결) |
+| Cloudflare R2 | `R2_ENDPOINT` · `R2_BUCKET` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` | Cloudflare 대시보드 → R2 → API 토큰 |
+| Microsoft Graph | `MS_GRAPH_TENANT_ID` · `MS_GRAPH_CLIENT_ID` · `MS_GRAPH_CLIENT_SECRET` · `MS_GRAPH_REFRESH_TOKEN` | Microsoft Entra 앱 등록 (Files.ReadWrite 권한) |
+
+키 값은 저장소에 포함되어 있지 않다. 발급한 값은 로컬 `.env` 파일 또는 배포 환경(Railway·Vercel)의 환경변수에 직접 입력한다. **키 값을 코드나 문서에 커밋하지 않는다.**
+
+
 PPT 통합가이드를 분석해 목차 기준으로 정리하고, 웹에서 검토·수정한 뒤 Notion 매뉴얼로 발행하는 내부 도구입니다.
 
 ## 파이프라인
